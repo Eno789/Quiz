@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="pageTitle">Helper for Teacher</title>
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/5501/5501776.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=Noto+Sans+KR:wght@400;700;900&display=swap');
+        
+        body { font-family: 'Noto Sans JP', 'Noto Sans KR', sans-serif; }
+
+        /* Text Selection */
+        .allow-select { user-select: text; -webkit-user-select: text; cursor: text; }
+        .select-area { cursor: pointer; user-select: none; background-color: rgba(241, 245, 249, 0.5); transition: background 0.2s; }
+        .select-area:hover { background-color: #cbd5e1; }
+
+        /* Dock Logic */
+        .bottom-dock {
+            transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.1s linear;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.15);
+            display: flex; flex-direction: column;
+        }
+        .no-transition { transition: none !important; }
+        
+        /* Management Dock */
+        #managementDock { transform: translateY(92%); z-index: 40; height: 65vh; max-height: 90vh; min-height: 100px; }
+        #managementDock.force-close { transform: translateY(92%) !important; }
+        #managementDock.active { transform: translateY(0) !important; }
+        #managementDock:hover:not(.force-close):not(.active) { transform: translateY(0); }
+
+        /* Manual Input Dock */
+        #manualInputDock { transform: translateY(100%); z-index: 60; height: 55vh; }
+        #manualInputDock.show { transform: translateY(0); }
+
+        #quizSelectionDock { transform: translateY(100%); z-index: 60; height: auto; }
+        #quizSelectionDock.show { transform: translateY(0); }
+
+        /* Table Layout Fix */
+        .dock-header { flex: none; user-select: none; }
+        .dock-content { flex: 1; overflow-y: auto; padding-bottom: 20px; position: relative; }
+        /* Sticky Header Fix */
+        thead th { position: sticky; top: 0; z-index: 20; } 
+        
+        .dock-content::-webkit-scrollbar { width: 8px; }
+        .dock-content::-webkit-scrollbar-track { background: #f1f5f9; }
+        .dock-content::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
+
+        .modal-overlay { backdrop-filter: blur(10px); background-color: rgba(15, 23, 42, 0.85); }
+        .quiz-card { transition: transform 0.3s ease, opacity 0.3s ease; transform: scale(1.35) translateY(40px);}
+        .shake-horizontal { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        
+        .row-selected { background-color: #e0e7ff !important; border-left: 4px solid #6366f1 !important; }
+        .header-edit-mode { background-color: #4f46e5 !important; color: white !important; } 
+        .header-edit-mode select, .header-edit-mode input { color: #1e293b !important; border-radius: 4px; border:none; }
+        
+        .edit-btn { opacity: 0; transition: opacity 0.2s, transform 0.2s; cursor: pointer; font-size: 0.9rem; color: #94a3b8; }
+        tr:hover .edit-btn { opacity: 1; }
+        .edit-btn:hover { transform: scale(1.2); color: #4f46e5; }
+
+        #dockHandleArea { cursor: row-resize; touch-action: none; padding-top: 15px; padding-bottom: 10px; margin-top: -10px; }
+        #dockHandle { transition: background-color 0.3s, transform 0.2s; }
+        .handle-locked { background-color: #ef4444 !important; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+        .handle-unlocked { background-color: #cbd5e1 !important; }
+
+        .quiz-controls-box { background-color: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); border-radius: 12px; padding: 16px; color: white; border: 1px solid rgba(255, 255, 255, 0.1); }
+
+        .mode-btn { border: 2px solid #e2e8f0; color: #94a3b8; background: white; transition: all 0.2s; font-size: 0.75rem; font-weight: 600; }
+        .mode-btn.q-mode.active { border-color: #6366f1; background: #e0e7ff; color: #4f46e5; font-weight: 800; transform: scale(1.05); }
+        .mode-btn.answer-mode.active { border-color: #f43f5e; background: #ffe4e6; color: #e11d48; font-weight: 800; transform: scale(1.05); }
+        .mode-btn:disabled { opacity: 0.3; cursor: not-allowed; background: #f1f5f9; }
+        .lang-btn.active { background-color: #4f46e5 !important; color: white !important; }
+    </style>
+</head>
+<body class="bg-slate-100 h-screen flex flex-col overflow-hidden relative" onmouseup="stopRowDrag(); endDrag()">
+
+    <input type="file" id="historyLoader" accept=".csv,.txt" class="hidden" onchange="processHistoryFile(this)">
+
+    <div class="px-8 py-4 flex justify-between items-center z-10 flex-none bg-white/60 backdrop-blur-md shadow-sm mb-2">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg flex items-center justify-center text-white font-black text-xl">会</div>
+            <div>
+                <h1 class="text-2xl font-black text-slate-800 leading-none" data-key="title">Verb Master</h1>
+                <p class="text-slate-500 text-[10px] font-bold tracking-wider" data-key="subtitle">TEACHER'S TOOLKIT</p>
+            </div>
+        </div>
+        <div class="flex gap-2">
+            <div class="bg-white rounded-lg shadow border border-slate-200 p-1 flex mr-2">
+                <button onclick="changeLang('ko')" id="btn-ko" class="lang-btn px-3 py-1 rounded text-xs font-bold text-slate-600 transition">KO</button>
+                <button onclick="changeLang('jp')" id="btn-jp" class="lang-btn px-3 py-1 rounded text-xs font-bold text-slate-600 transition">JP</button>
+                <button onclick="changeLang('en')" id="btn-en" class="lang-btn px-3 py-1 rounded text-xs font-bold text-slate-600 transition">EN</button>
+            </div>
+            <button onclick="location.href='match.html'" class="bg-teal-500 hover:bg-teal-600 text-white font-bold py-1.5 px-4 rounded-xl shadow text-sm transition"><span data-key="btn_match">Match</span></button>
+            <button onclick="openQuizOptions()" class="bg-slate-700 hover:bg-slate-800 text-white font-bold py-1.5 px-4 rounded-xl shadow text-sm transition"><span data-key="btn_opt">Option</span></button>
+            <button onclick="startStandardQuiz()" class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-1.5 px-5 rounded-xl shadow text-sm transition"><span data-key="btn_quiz">Quiz</span></button>
+        </div>
+    </div>
+
+    <div class="px-8 z-10 flex-none flex flex-col gap-3">
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap gap-3 items-end max-w-7xl mx-auto w-full">
+            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-1" data-key="lbl_dict">A: Dict</label><input type="text" id="inputDict" class="border border-slate-300 rounded-lg px-3 py-2 w-28 font-bold text-slate-700 text-sm outline-none" onkeypress="if(event.key==='Enter') tryAddWord()"></div>
+            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-1" data-key="lbl_group">B: Group</label><select id="inputGroup" class="border border-slate-300 rounded-lg px-3 py-2 w-36 font-bold text-slate-700 text-sm"><option value="1">1 (グループ)</option><option value="2">2 (グループ)</option><option value="3">3 (グループ)</option><option value="ex1">Ex 1</option><option value="ex2">Ex 2</option><option value="ex3">Ex 3</option></select></div>
+            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-1" data-key="lbl_chapter">H: Chapter</label><input type="text" id="inputChapter" value="0" class="border border-slate-300 rounded-lg px-3 py-2 w-16 text-center font-bold text-slate-700 text-sm"></div>
+            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-1" data-key="lbl_quiz">J: Quiz</label><select id="inputQuiz" class="border border-slate-300 rounded-lg px-3 py-2 w-16 text-center font-bold text-slate-700 text-sm"><option value="1">O</option><option value="0">X</option></select></div>
+            <div><label class="block text-[10px] font-bold text-slate-400 uppercase mb-1" data-key="lbl_reading">L: Reading</label><input type="text" id="inputReading" class="border border-slate-300 rounded-lg px-3 py-2 w-28 font-bold text-slate-700 text-sm" onkeypress="if(event.key==='Enter') tryAddWord()"></div>
+            <button onclick="tryAddWord()" class="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 px-5 rounded-lg shadow-md text-sm transition"><i class="fa-solid fa-plus"></i></button>
+            <div class="ml-auto flex gap-2">
+                <label class="cursor-pointer bg-slate-50 hover:bg-slate-100 text-slate-600 py-2 px-4 rounded-lg border border-slate-200 flex items-center text-xs font-bold transition"><i class="fa-solid fa-file-import mr-2"></i> Import<input type="file" id="csvInput" accept=".csv" class="hidden" onchange="importCSV(this)"></label>
+                <button onclick="exportCSV()" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold py-2 px-4 rounded-lg text-xs flex items-center transition"><i class="fa-solid fa-file-export mr-2"></i> Export</button>
+            </div>
+        </div>
+        <div class="bg-white/80 backdrop-blur p-3 rounded-2xl shadow-sm border border-indigo-100 flex flex-col md:flex-row items-center justify-center gap-6 max-w-7xl mx-auto w-full">
+             <div class="flex flex-col gap-1 items-center">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest" data-key="lbl_q_type">Question</span>
+                <div class="flex gap-2">
+                    <button class="mode-btn q-mode px-3 py-1 rounded-full text-xs" onclick="setQMode(this, 'dict')" data-key="type_dict">Dict</button>
+                    <button class="mode-btn q-mode active px-3 py-1 rounded-full text-xs" onclick="setQMode(this, 'masu')" data-key="type_masu">Masu</button>
+                    <button class="mode-btn q-mode px-3 py-1 rounded-full text-xs" onclick="setQMode(this, 'nai')" data-key="type_nai">Nai</button>
+                    <button class="mode-btn q-mode px-3 py-1 rounded-full text-xs" onclick="setQMode(this, 'te')" data-key="type_te">Te</button>
+                    <button class="mode-btn q-mode px-3 py-1 rounded-full text-xs" onclick="setQMode(this, 'ta')" data-key="type_ta">Ta</button>
+                </div>
+            </div>
+            <div class="text-slate-300"><i class="fa-solid fa-arrow-right"></i></div>
+            <div class="flex flex-col gap-1 items-center">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest" data-key="lbl_a_type">Answer</span>
+                <div class="flex gap-2">
+                    <button class="mode-btn answer-mode active px-3 py-1 rounded-full text-xs" onclick="toggleAMode(this, 'dict')" data-val="dict" data-key="type_dict">Dict</button>
+                    <button class="mode-btn answer-mode px-3 py-1 rounded-full text-xs" onclick="toggleAMode(this, 'masu')" data-val="masu" data-key="type_masu">Masu</button>
+                    <button class="mode-btn answer-mode active px-3 py-1 rounded-full text-xs" onclick="toggleAMode(this, 'nai')" data-val="nai" data-key="type_nai">Nai</button>
+                    <button class="mode-btn answer-mode active px-3 py-1 rounded-full text-xs" onclick="toggleAMode(this, 'te')" data-val="te" data-key="type_te">Te</button>
+                    <button class="mode-btn answer-mode active px-3 py-1 rounded-full text-xs" onclick="toggleAMode(this, 'ta')" data-val="ta" data-key="type_ta">Ta</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="managementDock" class="bottom-dock fixed bottom-0 left-0 w-full bg-white border-t-4 border-indigo-500 rounded-t-3xl flex flex-col">
+        <div id="dockHandleArea" class="w-full flex justify-center cursor-row-resize dock-header z-50 pt-4 pb-2 -mt-4">
+            <div id="dockHandle" class="w-16 h-1.5 rounded-full handle-unlocked"></div>
+        </div>
+        <div class="px-8 py-3 border-b border-slate-100 flex justify-between items-center relative flex-none dock-header" onclick="if(!isDragging && !isDockLocked) toggleDockLock()">
+            <div class="flex items-center gap-3">
+                <div class="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-md text-xs font-black tracking-wider" data-key="badge_db">DB</div>
+                <h2 class="font-bold text-slate-700 text-sm"><span data-key="total">Total</span>: <span id="totalCount" class="text-indigo-600">0</span> / <span data-key="selected">Sel</span>: <span id="selectedCount" class="text-rose-500 font-bold">0</span></h2>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="event.stopPropagation(); sortListByChapter()" class="text-slate-500 hover:text-indigo-600 px-3 py-1 rounded text-xs font-bold border border-slate-200"><span data-key="btn_sort">Sort</span></button>
+                <button onclick="event.stopPropagation(); deleteSelected()" class="text-slate-500 hover:text-red-500 px-3 py-1 rounded text-xs font-bold border border-slate-200"><span data-key="del_sel">Del Sel</span></button>
+                <button onclick="event.stopPropagation(); deleteAll()" class="text-red-500 hover:text-white hover:bg-red-500 px-3 py-1 rounded text-xs font-bold border border-red-200 hover:bg-red-50"><span data-key="del_all">Del All</span></button>
+            </div>
+        </div>
+        <div class="dock-content p-4" onmouseleave="stopRowDrag()">
+            <table class="w-full text-sm text-left text-slate-600 border-collapse">
+                <thead id="tableHeader" class="text-xs text-slate-400 uppercase bg-slate-50 sticky top-0 z-20 shadow-sm transition-colors duration-300"></thead>
+                <tbody id="wordTableBody"></tbody>
+            </table>
+            <div id="emptyState" class="hidden flex-col items-center justify-center h-full text-slate-300 pt-10"><i class="fa-solid fa-inbox text-4xl mb-2"></i><p data-key="msg_empty">No Data</p></div>
+        </div>
+    </div>
+
+    <div id="manualInputDock" class="bottom-dock fixed bottom-0 left-0 w-full h-[55vh] bg-white border-t-4 border-rose-500 rounded-t-3xl flex flex-col shadow-[0_-20px_60px_rgba(0,0,0,0.3)]">
+        <div class="px-8 py-4 border-b border-slate-100 flex justify-between items-center bg-rose-50 rounded-t-3xl">
+            <div class="flex items-center gap-3"><div class="bg-rose-100 text-rose-600 px-3 py-1 rounded-md text-xs font-black tracking-wider animate-pulse" data-key="badge_manual">MANUAL</div><h2 class="font-bold text-slate-700 text-sm" data-key="manual_title">Exception Input</h2></div>
+            <button onclick="closeManualDock()" class="text-slate-400 hover:text-rose-500 transition-colors p-2"><i class="fa-solid fa-xmark text-2xl"></i></button>
+        </div>
+        <div class="flex-1 p-8 flex flex-col justify-start items-center gap-6 overflow-y-auto">
+            <div class="flex gap-4 w-full justify-center">
+                <div><label class="block text-xs font-bold text-slate-400 mb-1" data-key="lbl_dict">Dict</label><input type="text" id="manualDict" readonly class="bg-slate-100 border border-slate-300 rounded px-3 py-2 w-32 font-bold text-slate-500 outline-none"></div>
+                <div><label class="block text-xs font-bold text-slate-400 mb-1" data-key="lbl_group">Group</label><input type="text" id="manualGroup" readonly class="bg-slate-100 border border-slate-300 rounded px-3 py-2 w-32 font-bold text-slate-500 outline-none"></div>
+                <div><label class="block text-xs font-bold text-slate-400 mb-1" data-key="lbl_chapter">Chap</label><input type="text" id="manualChapter" class="bg-white border-2 border-slate-200 focus:border-slate-500 rounded px-3 py-2 w-16 font-bold text-slate-700 outline-none" onkeypress="if(event.key==='Enter') saveManualWord()"></div>
+                <div><label class="block text-xs font-bold text-slate-400 mb-1" data-key="lbl_quiz">Quiz</label><select id="manualQuiz" class="bg-white border-2 border-slate-200 focus:border-slate-500 rounded px-3 py-2 w-16 font-bold text-slate-700 outline-none"><option value="1">O</option><option value="0">X</option></select></div>
+            </div>
+            <div class="flex gap-4 w-full justify-center"><div class="w-full max-w-lg"><label class="block text-xs font-bold text-slate-400 mb-1" data-key="lbl_reading">Read</label><input type="text" id="manualReading" placeholder="Optional" class="w-full border-2 border-slate-200 focus:border-slate-500 rounded px-3 py-2 font-bold text-slate-700 outline-none" onkeypress="if(event.key==='Enter') saveManualWord()"></div></div>
+            <div class="flex gap-4 w-full justify-center flex-wrap">
+                <div><label class="block text-xs font-bold text-indigo-600 mb-1">Masu</label><input type="text" id="manualMasu" class="border-2 border-indigo-100 focus:border-indigo-500 rounded px-3 py-2 w-32 font-bold outline-none" onkeypress="if(event.key==='Enter') saveManualWord()"></div>
+                <div><label class="block text-xs font-bold text-rose-600 mb-1">Nai</label><input type="text" id="manualNai" class="border-2 border-rose-100 focus:border-rose-500 rounded px-3 py-2 w-32 font-bold outline-none" onkeypress="if(event.key==='Enter') saveManualWord()"></div>
+                <div><label class="block text-xs font-bold text-emerald-600 mb-1">Te</label><input type="text" id="manualTe" class="border-2 border-emerald-100 focus:border-emerald-500 rounded px-3 py-2 w-32 font-bold outline-none" onkeypress="if(event.key==='Enter') saveManualWord()"></div>
+                <div><label class="block text-xs font-bold text-amber-600 mb-1">Ta</label><input type="text" id="manualTa" class="border-2 border-amber-100 focus:border-amber-500 rounded px-3 py-2 w-32 font-bold outline-none" onkeypress="if(event.key==='Enter') saveManualWord()"></div>
+            </div>
+            <button onclick="saveManualWord()" class="bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 px-12 rounded-xl shadow-lg transition mt-4"><span data-key="btn_save">Save</span></button>
+        </div>
+    </div>
+
+    <div id="quizOptionsOverlay" class="fixed inset-0 z-50 hidden flex flex-col items-center justify-center modal-overlay">
+        <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-4xl w-[90%] max-h-[80vh] flex flex-col relative">
+            <button onclick="closeQuizOptions()" class="absolute top-6 right-6 text-slate-300 hover:text-slate-600 text-2xl"><i class="fa-solid fa-xmark"></i></button>
+            <h2 class="text-2xl font-black text-slate-800 mb-1" data-key="opt_title">Settings</h2>
+            <p class="text-slate-500 text-sm mb-4" data-key="opt_desc">Select questions per chapter.</p>
+            <div id="quizOptionsContainer" class="flex-1 overflow-y-auto grid grid-cols-4 gap-4 p-2 mt-4"></div>
+            <div class="mt-6 flex justify-end gap-3 pt-4 border-t border-slate-100 items-center">
+                <div class="mr-auto text-3xl font-black text-indigo-600" id="totalQuizCountDisplay">0</div>
+                <button onclick="reqHistoryUpload()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-bold text-sm" data-key="btn_smart">Algo</button>
+                <button onclick="autoFillQuizOptions()" class="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-white font-bold text-sm" data-key="btn_auto">Auto (50)</button>
+                <button onclick="startCustomQuiz()" class="px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm" data-key="btn_start">Start</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="quizOverlay" class="fixed inset-0 z-50 hidden flex flex-col items-center justify-center modal-overlay">
+        <div class="absolute top-10 right-10 flex gap-6 items-start">
+            <div class="quiz-controls-box text-right">
+                <div class="text-[10px] opacity-60 font-mono mb-2" data-key="quiz_ctrl">CONTROLS</div>
+                <div class="text-sm font-bold mb-1"><span class="bg-white/20 px-2 py-0.5 rounded text-xs mr-2">SPACE</span> <span data-key="quiz_skip">Skip</span></div>
+                <div class="text-sm font-bold"><span class="bg-white/20 px-2 py-0.5 rounded text-xs mr-2">→</span> <span data-key="quiz_ans">Ans/Next</span></div>
+            </div>
+            <button onclick="endQuiz()" class="bg-white/10 hover:bg-red-500 p-4 rounded-full text-white text-xl transition"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="quizFinale" class="hidden text-white text-6xl font-black mb-4">Complete!</div>
+        <div id="quizCard" class="quiz-card bg-white w-[900px] h-[550px] rounded-[3rem] shadow-2xl flex flex-col relative overflow-hidden">
+            <div class="bg-indigo-600 h-4 w-full"></div>
+            <div class="flex-1 flex flex-col p-12 relative items-center justify-center">
+                <div id="quizType" class="absolute top-10 right-12 text-4xl font-black text-emerald-500">TYPE</div>
+                <div id="quizLabel" class="text-5xl font-black text-indigo-500 mb-4">Reading</div>
+                <div id="quizQuestion" class="text-8xl font-black text-slate-800 pb-2">Q</div>
+                <div id="quizGroup" class="mt-6 bg-slate-100 text-slate-500 px-6 py-2 rounded-full text-lg font-bold">G</div>
+                <div id="quizAnswerBox" class="mt-auto h-24 w-full text-center transition-all opacity-0 translate-y-6">
+                    <div class="text-sm text-slate-400 font-bold mb-1 uppercase" data-key="quiz_label_ans">ANSWER</div>
+                    <div id="quizAnswer" class="text-6xl font-bold text-rose-600">A</div>
+                </div>
+            </div>
+        </div>
+        <div id="quizProgressContainer" class="mt-40 text-white/60 text-xl font-mono tracking-widest"><span id="quizIndex">1</span> / <span id="quizTotal">10</span></div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'jp_verb_master_v8_8';
+        const EXPIRY_MS = 3 * 60 * 60 * 1000; 
+        let vocabList = [], currentLang = 'ko';
+        let currentQMode = 'masu', activeAModes = new Set(['dict', 'nai', 'te', 'ta']); 
+        let isDockLocked=false, isDragging=false, startY=0;
+        let activeFilterChapter='all', activeFilterQuiz='all', activeFilterGroup='all';
+        let quizQueue=[], currentQuizIndex=0, isAnswerShown=false;
+        
+        let lastSelectedId=null;
+        let isRowDragging=false;
+        let rowDragState=false; 
+
+        const langPack = {
+            ko: { title:"동사 활용 마스터", subtitle:"made by Eno7", btn_match:"매칭", btn_opt:"옵션", btn_quiz:"퀴즈", lbl_dict:"사전형", lbl_group:"그룹", lbl_chapter:"단원", lbl_quiz:"퀴즈", lbl_reading:"읽기", lbl_q_type:"출제 (택1)", lbl_a_type:"정답 (다중)", badge_db:"데이터베이스", total:"총", selected:"선택", btn_sort:"정렬", del_sel:"선택삭제", del_all:"전체삭제", msg_empty:"데이터 없음", col_a:"사전형", col_b:"그룹", col_c:"ます형", col_d:"ない형", col_f:"て형", col_g:"た형", col_k:"★", col_l:"읽기", col_act:"관리", opt_title:"퀴즈 설정", opt_desc:"단원별 문제 수", btn_auto:"자동 (50)", btn_start:"시작", type_dict:"사전형", type_masu:"ます형", type_nai:"ない형", type_te:"て형", type_ta:"た형", quiz_label_ans:"정답", quiz_ctrl:"조작법", quiz_skip:"스킵", quiz_ans:"정답/다음", btn_smart:"알고리즘(yet)", btn_save:"저장", manual_title:"예외 입력" },
+            jp: { title:"動詞活用マスター", subtitle:"made by パク", btn_match:"マッチング", btn_opt:"設定", btn_quiz:"クイズ", lbl_dict:"辞書形", lbl_group:"G", lbl_chapter:"章", lbl_quiz:"Q", lbl_reading:"読み方", lbl_q_type:"出題 (択一)", lbl_a_type:"回答 (複数)", badge_db:"データベース", total:"総数", selected:"選択", btn_sort:"整列", del_sel:"選択削除", del_all:"全削除", msg_empty:"データなし", col_a:"辞書形", col_b:"G", col_c:"ます形", col_d:"ない形", col_f:"て形", col_g:"た形", col_k:"★", col_l:"読み", col_act:"操作", opt_title:"クイズ設定", opt_desc:"章ごとの出題数", btn_auto:"自動 (50)", btn_start:"開始", type_dict:"辞書形", type_masu:"ます形", type_nai:"ない形", type_te:"て形", type_ta:"た形", quiz_label_ans:"正解", quiz_ctrl:"操作", quiz_skip:"次へ", quiz_ans:"正解/次へ", btn_smart:"アルゴリズム(まだ)", btn_save:"保存", manual_title:"例外入力" },
+            en: { title:"Verb Master", subtitle:"made by Eno7", btn_match:"Match", btn_opt:"Option", btn_quiz:"Quiz", lbl_dict:"Dict", lbl_group:"Grp", lbl_chapter:"Ch", lbl_quiz:"Qz", lbl_reading:"Read", lbl_q_type:"Question", lbl_a_type:"Answer", badge_db:"DATABASE", total:"Total", selected:"Sel", btn_sort:"Sort", del_sel:"Del Sel", del_all:"Del All", msg_empty:"No Data", col_a:"Dict", col_b:"Grp", col_c:"Masu", col_d:"Nai", col_f:"Te", col_g:"Ta", col_k:"★", col_l:"Read", col_act:"Act", opt_title:"Quiz Opt", opt_desc:"Questions per Chapter", btn_auto:"Auto (50)", btn_start:"Start", type_dict:"Dict", type_masu:"Masu", type_nai:"Nai", type_te:"Te", type_ta:"Ta", quiz_label_ans:"Answer", quiz_ctrl:"CONTROLS", quiz_skip:"Skip", quiz_ans:"Ans/Next", btn_smart:"Algo(yet)", btn_save:"Save", manual_title:"Exception Input" }
+        };
+
+        function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify({t:Date.now(), d:vocabList})); }
+        function load() { 
+            const r=localStorage.getItem(STORAGE_KEY); 
+            if(r) { const p=JSON.parse(r); if(Date.now()-p.t < EXPIRY_MS) vocabList=p.d; }
+            renderTable(); 
+        }
+        function changeLang(l) { 
+            currentLang=l; 
+            document.querySelectorAll('.lang-btn').forEach(b=>b.classList.remove('active'));
+            document.getElementById(`btn-${l}`).classList.add('active');
+            const d=langPack[l];
+            for(let k in d) {
+                document.querySelectorAll(`[data-key="${k}"]`).forEach(e=>{
+                    if(e.tagName==='INPUT') e.placeholder=d[k]; else e.innerText=d[k];
+                });
+            }
+            renderTable();
+        }
+        function normalizeNum(s) { return s.toString().replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,'')||'0'; }
+        
+        function conjugate(d,g){ 
+            let m=d,n=d,te=d,ta=d; if(!d)return{masu:"",nai:"",te:"",ta:""};
+            const l=d.slice(-1), s=d.slice(0,-1);
+            if(g==='1'||g==='ex1'){
+                const mm={'う':'います','つ':'ちます','る':'ります','む':'みます','ぶ':'びます','ぬ':'にます','く':'きます','ぐ':'ぎます','す':'します'};
+                const nm={'う':'わない','つ':'たない','る':'らない','む':'まない','ぶ':'ばない','ぬ':'なない','く':'かない','ぐ':'がない','す':'さない'};
+                const tm={'う':'って','つ':'って','る':'って','む':'んで','ぶ':'んで','ぬ':'んで','く':'いて','ぐ':'いで','す':'して'};
+                if(mm[l])m=s+mm[l]; if(nm[l])n=s+nm[l]; if(tm[l])te=s+tm[l];
+                if(d==='行く'||d==='いく')te=s+'って'; if(d==='ある')n='ない';
+            } else if(g==='2'||g==='ex2'){ if(l==='る'){m=s+'ます';n=s+'ない';te=s+'て';} }
+            else if(g==='3'||g==='ex3'){
+                if(d.endsWith('する')){const p=d.slice(0,-2);m=p+'します';n=p+'しない';te=p+'して';}
+                else if(d.endsWith('くる')||d.endsWith('来る')){const p=d.slice(0,-2);const k=d.endsWith('来る');m=p+(k?'来ます':'きます');n=p+(k?'来ない':'こない');te=p+(k?'来て':'きて');}
+            }
+            if(te.endsWith('て'))ta=te.slice(0,-1)+'た'; else if(te.endsWith('で'))ta=te.slice(0,-1)+'だ'; else ta=te;
+            return {masu:m,nai:n,te:te,ta:ta};
+        }
+
+        // RENDERER
+        function renderTable() {
+            const tb = document.getElementById('wordTableBody'), th = document.getElementById('tableHeader'), empty = document.getElementById('emptyState');
+            tb.innerHTML = '';
+            
+            const list = vocabList.slice().reverse();
+            const selCnt = vocabList.filter(x=>x.checked).length;
+            document.getElementById('totalCount').innerText = vocabList.length;
+            document.getElementById('selectedCount').innerText = selCnt;
+            
+            document.getElementById('emptyState').className = vocabList.length===0 ? 'flex flex-col items-center justify-center h-full text-slate-300 pt-10' : 'hidden';
+
+            const lp = langPack[currentLang];
+            const isEdit = selCnt > 0;
+            th.className = isEdit ? "text-xs uppercase sticky top-0 z-20 shadow-sm header-edit-mode transition-colors duration-300" : "text-xs uppercase sticky top-0 z-20 shadow-sm bg-slate-50 text-slate-400";
+            
+            let h = `<tr><th class="px-4 py-3 w-10 text-center select-area" onclick="toggleAll()"><input type="checkbox" class="pointer-events-none" ${selCnt===vocabList.length&&vocabList.length>0?'checked':''}></th><th class="px-4 py-3">${lp.col_a}</th><th class="px-4 py-3 text-center">${lp.col_l}</th>`;
+            
+            const grpOpts = `<option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="ex1">Ex1</option><option value="ex2">Ex2</option><option value="ex3">Ex3</option>`;
+            const quizOpts = `<option value="1">O</option><option value="0">X</option>`;
+            
+            if(isEdit) {
+                h += `<th class="px-2 py-3 text-center">G <select onchange="bulk('group',this.value)" class="text-black rounded"><option value="">-</option>${grpOpts}</select></th>`;
+                h += `<th class="px-4 text-center">${lp.col_c}</th><th class="px-4 text-center">${lp.col_d}</th><th class="px-4 text-center">${lp.col_f}</th><th class="px-4 text-center">${lp.col_g}</th>`;
+                h += `<th class="px-2 text-center">★ <select onchange="bulk('importance',this.value)" class="text-black rounded"><option value="">-</option><option value="1">O</option><option value="0">X</option></select></th>`;
+                h += `<th class="px-2 text-center">Ch <input type="text" onchange="bulk('chapter',this.value)" class="w-10 text-black text-center rounded" placeholder="-"></th>`;
+                h += `<th class="px-2 text-center">Q <select onchange="bulk('quiz',this.value)" class="text-black rounded"><option value="">-</option>${quizOpts}</select></th>`;
+            } else {
+                h += `<th class="px-2 py-3 text-center">G <select onchange="filter('group',this.value)" class="bg-white border rounded text-black"><option value="all" ${activeFilterGroup==='all'?'selected':''}>All</option>${grpOpts.replace(`value="${activeFilterGroup}"`,`value="${activeFilterGroup}" selected`)}</select></th>`;
+                h += `<th class="px-4 text-center">${lp.col_c}</th><th class="px-4 text-center">${lp.col_d}</th><th class="px-4 text-center">${lp.col_f}</th><th class="px-4 text-center">${lp.col_g}</th>`;
+                h += `<th class="px-4 text-center text-amber-500">★</th>`;
+                h += `<th class="px-2 text-center">Ch <select onchange="filter('chapter',this.value)" class="bg-white border rounded text-black"><option value="all" ${activeFilterChapter==='all'?'selected':''}>All</option>${[...new Set(vocabList.map(v=>v.chapter))].sort((a,b)=>a-b).map(c=>`<option value="${c}" ${activeFilterChapter===c?'selected':''}>${c}</option>`).join('')}</select></th>`;
+                h += `<th class="px-2 text-center">Q <select onchange="filter('quiz',this.value)" class="bg-white border rounded text-black"><option value="all" ${activeFilterQuiz==='all'?'selected':''}>All</option><option value="1" ${activeFilterQuiz==='1'?'selected':''}>O</option><option value="0" ${activeFilterQuiz==='0'?'selected':''}>X</option></select></th>`;
+            }
+            h += `<th class="px-4 text-center">${lp.col_act}</th></tr>`;
+            th.innerHTML = h;
+
+            const filtered = list.filter(i => {
+                if(activeFilterChapter!=='all' && i.chapter!==activeFilterChapter) return false;
+                if(activeFilterQuiz!=='all' && i.quiz!==activeFilterQuiz) return false;
+                if(activeFilterGroup!=='all' && i.group!==activeFilterGroup) return false;
+                return true;
+            });
+
+            filtered.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = item.checked ? "bg-indigo-50 border-b row-selected" : "border-b hover:bg-slate-50";
+                
+                const ec = (val, f) => `<div class="flex items-center justify-center gap-1 allow-select"><span class="cursor-text">${val||'-'}</span><i class="fa-solid fa-pencil edit-btn" onclick="editCell('${item.id}','${f}')"></i></div>`;
+                const qIcon = item.quiz==='1' ? '<span class="text-emerald-600 font-bold">O</span>' : '<span class="text-slate-300">X</span>';
+                const sIcon = item.importance==='1' ? 'fa-solid fa-star text-amber-400' : 'fa-regular fa-star text-slate-300';
+
+                tr.innerHTML = `
+                    <td class="px-4 py-3 text-center select-area chk-cell" 
+                        onmousedown="rowDown(event, '${item.id}')"
+                        onmouseenter="rowEnter('${item.id}')">
+                        <input type="checkbox" class="pointer-events-none" ${item.checked?'checked':''}>
+                    </td>
+                    <td class="px-4 py-3 font-bold text-slate-800 text-center">${ec(item.dict,'dict')}</td>
+                    <td class="px-4 py-3 text-center text-slate-500">${ec(item.reading,'reading')}</td>
+                    <td class="px-4 py-3 text-center"><div class="flex items-center justify-center gap-1"><span class="bg-slate-200 px-2 rounded text-xs font-bold">${item.group}</span><i class="fa-solid fa-pencil edit-btn" onclick="editSelect('${item.id}','group',this)"></i></div></td>
+                    <td class="px-4 py-3 text-center text-indigo-600 font-bold">${ec(item.masu,'masu')}</td>
+                    <td class="px-4 py-3 text-center text-rose-500">${ec(item.nai,'nai')}</td>
+                    <td class="px-4 py-3 text-center text-emerald-600">${ec(item.te,'te')}</td>
+                    <td class="px-4 py-3 text-center text-amber-600">${ec(item.ta,'ta')}</td>
+                    <td class="px-4 py-3 text-center cursor-pointer hover:scale-125 transition" onclick="toggleProp('${item.id}','importance')"><i class="${sIcon}"></i></td>
+                    <td class="px-4 py-3 text-center text-slate-500 font-medium">${ec(item.chapter,'chapter')}</td>
+                    <td class="px-4 py-3 text-center cursor-pointer"><div class="flex items-center justify-center gap-1"><span onclick="toggleProp('${item.id}','quiz')">${qIcon}</span><i class="fa-solid fa-pencil edit-btn" onclick="editSelect('${item.id}','quiz',this)"></i></div></td>
+                    <td class="px-4 py-3 text-center"><button onclick="deleteItem('${item.id}')" class="text-slate-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button></td>
+                `;
+                tb.appendChild(tr);
+            });
+        }
+
+        // --- ROW SELECTION LOGIC ---
+        function rowDown(e, id) {
+            e.stopPropagation(); 
+            const item = vocabList.find(x => x.id === id);
+            
+            if(e.shiftKey && lastSelectedId) {
+                const idx = vocabList.findIndex(x=>x.id===id);
+                const last = vocabList.findIndex(x=>x.id===lastSelectedId);
+                const s=Math.min(idx,last), en=Math.max(idx,last);
+                for(let i=s; i<=en; i++) vocabList[i].checked=true;
+            } else if(e.ctrlKey || e.metaKey) {
+                item.checked = !item.checked;
+                lastSelectedId = id;
+            } else {
+                const wasChecked = item.checked; 
+                vocabList.forEach(x => x.checked = false); 
+                item.checked = !wasChecked; 
+
+                if (item.checked) {
+                    lastSelectedId = id;
+                    isRowDragging = true;
+                    rowDragState = true; 
+                } else {
+                    lastSelectedId = null;
+                    isRowDragging = false;
+                }
+            }
+            save(); renderTable();
+        }
+
+        function rowEnter(id) {
+            if(isRowDragging) {
+                const item = vocabList.find(x => x.id === id);
+                if(item) {
+                    item.checked = rowDragState;
+                    save(); renderTable();
+                }
+            }
+        }
+        function stopRowDrag() { isRowDragging = false; }
+        
+        function toggleAll() {
+            const allSelected = vocabList.length > 0 && vocabList.every(x => x.checked);
+            vocabList.forEach(x => x.checked = !allSelected);
+            save(); renderTable();
+        }
+
+        // --- EDIT LOGIC ---
+        function editCell(id, f) {
+            const i = vocabList.find(x=>x.id===id); if(!i) return;
+            const val = prompt(`Edit ${f}`, i[f]);
+            if(val!==null) { i[f]=val.trim(); save(); renderTable(); }
+        }
+
+        function editSelect(id, f, btn) {
+            const i = vocabList.find(x=>x.id===id); if(!i) return;
+            const container = btn.parentNode;
+            const select = document.createElement('select');
+            select.className = "text-xs p-1 border rounded text-black shadow-lg absolute z-50";
+            let opts = f==='group' ? ['1','2','3','ex1','ex2','ex3'] : ['1','0'];
+            opts.forEach(o => {
+                const op = document.createElement('option');
+                op.value = o; op.text = f==='quiz'?(o==='1'?'O':'X'):o;
+                if(o===i[f]) op.selected=true;
+                select.appendChild(op);
+            });
+            container.innerHTML = ''; container.appendChild(select);
+            select.focus();
+            select.onclick = (e) => e.stopPropagation();
+            select.onchange = function() {
+                i[f] = this.value;
+                if(f==='group' && !this.value.startsWith('ex')) {
+                    const c = conjugate(i.dict, this.value);
+                    i.masu=c.masu; i.nai=c.nai; i.te=c.te; i.ta=c.ta;
+                }
+                save(); renderTable();
+            };
+            select.onblur = function() { renderTable(); }; 
+        }
+
+        // --- ACTIONS ---
+        function tryAddWord() {
+            const d=document.getElementById('inputDict').value.trim();
+            const g=document.getElementById('inputGroup').value;
+            if(!d) return alert("Input Dict Form");
+            
+            // IF EXCEPTION, OPEN MANUAL DOCK
+            if(g.startsWith('ex')) {
+                openManualInput(d, g);
+                return;
+            }
+
+            let f = conjugate(d,g);
+            vocabList.push({
+                id:Date.now()+Math.random().toString(), dict:d, group:g, masu:f.masu, nai:f.nai, te:f.te, ta:f.ta,
+                chapter:normalizeNum(document.getElementById('inputChapter').value),
+                quiz:normalizeNum(document.getElementById('inputQuiz').value), importance:'0',
+                reading:document.getElementById('inputReading').value.trim(), checked:false
+            });
+            save(); renderTable();
+            clearMainInputs();
+        }
+
+        function clearMainInputs() {
+            document.getElementById('inputDict').value='';
+            document.getElementById('inputReading').value='';
+            document.getElementById('inputDict').focus();
+        }
+
+        // --- MANUAL INPUT LOGIC ---
+        function openManualInput(dict, group) {
+            // Pre-fill fields
+            document.getElementById('manualDict').value = dict;
+            document.getElementById('manualGroup').value = group;
+            document.getElementById('manualChapter').value = document.getElementById('inputChapter').value;
+            document.getElementById('manualQuiz').value = document.getElementById('inputQuiz').value;
+            document.getElementById('manualReading').value = document.getElementById('inputReading').value;
+
+            // ALGORITHM PRE-FILL for Ex1, Ex2...
+            // Extract number from ex1 -> 1
+            const baseGroup = group.replace('ex', '');
+            const pre = conjugate(dict, baseGroup);
+
+            document.getElementById('manualMasu').value = pre.masu;
+            document.getElementById('manualNai').value = pre.nai;
+            document.getElementById('manualTe').value = pre.te;
+            document.getElementById('manualTa').value = pre.ta;
+
+            // Show Dock
+            document.getElementById('manualInputDock').classList.add('show');
+            document.getElementById('manualReading').focus();
+        }
+
+        function closeManualDock() {
+            document.getElementById('manualInputDock').classList.remove('show');
+        }
+
+        function saveManualWord() {
+            const d = document.getElementById('manualDict').value;
+            const g = document.getElementById('manualGroup').value;
+            
+            if(!d) return alert("Error: No Dictionary Form");
+
+            vocabList.push({
+                id:Date.now()+Math.random().toString(), 
+                dict:d, 
+                group:g, 
+                masu:document.getElementById('manualMasu').value.trim(), 
+                nai:document.getElementById('manualNai').value.trim(), 
+                te:document.getElementById('manualTe').value.trim(), 
+                ta:document.getElementById('manualTa').value.trim(),
+                chapter:normalizeNum(document.getElementById('manualChapter').value),
+                quiz:normalizeNum(document.getElementById('manualQuiz').value), 
+                importance:'0',
+                reading:document.getElementById('manualReading').value.trim(), 
+                checked:false
+            });
+            
+            save(); 
+            renderTable();
+            closeManualDock();
+            clearMainInputs(); // Clear the original top bar too
+        }
+
+        function deleteItem(id) { if(confirm("Delete?")) { vocabList=vocabList.filter(x=>x.id!==id); save(); renderTable(); } }
+        function deleteAll() { if(confirm("All?")) { vocabList=[]; save(); renderTable(); } }
+        function deleteSelected() { vocabList=vocabList.filter(x=>!x.checked); save(); renderTable(); }
+        function toggleProp(id,f) { const i=vocabList.find(x=>x.id===id); if(i){i[f]=i[f]==='1'?'0':'1'; save(); renderTable();} }
+        function bulk(f,v) { if(!v)return; if(f==='chapter')v=normalizeNum(v); vocabList.forEach(x=>{if(x.checked)x[f]=v;}); save(); renderTable(); }
+        
+        function filter(f,v) { 
+            if(f==='chapter') activeFilterChapter=v; 
+            if(f==='quiz') activeFilterQuiz=v; 
+            if(f==='group') activeFilterGroup=v; 
+            renderTable();
+        }
+        function sortListByChapter() { vocabList.sort((a,b)=>parseInt(a.chapter)-parseInt(b.chapter)); save(); renderTable(); }
+
+        // --- CSV ---
+        function importCSV(input) {
+            const f=input.files[0]; if(!f)return;
+            const r=new FileReader();
+            r.onload=e=>{
+                let c=e.target.result; if(c.charCodeAt(0)===0xFEFF)c=c.slice(1);
+                const rows=c.split(/\r?\n/).slice(1);
+                let cnt=0;
+                rows.forEach(row=>{
+                    const col=row.split(',');
+                    if(col.length>=2 && col[0].trim()) {
+                        const d=col[0].trim();
+                        if(!vocabList.some(v=>v.dict===d)) {
+                            const g=col[1]?.trim()||'1';
+                            let cf={masu:col[2],nai:col[3],te:col[4],ta:col[5]};
+                            if(!cf.masu && !g.startsWith('ex')) cf=conjugate(d,g);
+                            vocabList.push({
+                                id:Date.now()+Math.random().toString(), dict:d, group:g, masu:cf.masu||'', nai:cf.nai||'', te:cf.te||'', ta:cf.ta||'',
+                                chapter:normalizeNum(col[6]), quiz:normalizeNum(col[7]), importance:col[8]||'0', reading:col[9]||'', checked:false
+                            });
+                            cnt++;
+                        }
+                    }
+                });
+                input.value=''; sortListByChapter();
+                if(cnt>0) { document.getElementById('managementDock').classList.add('active'); setDockLock(true); }
+                alert(`${cnt} imported`);
+            };
+            r.readAsText(f);
+        }
+        function exportCSV() {
+            let c="\uFEFFTarget,Group,Masu,Nai,Te,Ta,Chapter,Quiz,Importance,Reading\n";
+            vocabList.forEach(x=>c+=`${x.dict},${x.group},${x.masu},${x.nai},${x.te},${x.ta},${x.chapter},${x.quiz},${x.importance},${x.reading||''}\n`);
+            const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([c],{type:'text/csv'}));
+            a.download='verb_data.csv'; a.click();
+        }
+
+        // --- DOCK ---
+        const dock=document.getElementById('managementDock'), hArea=document.getElementById('dockHandleArea'), handle=document.getElementById('dockHandle');
+        hArea.addEventListener('pointerdown',e=>{ isDragging=true; startY=e.clientY; dock.classList.add('no-transition'); dock.setPointerCapture(e.pointerId); });
+        window.addEventListener('pointermove',e=>{ if(isDragging){ dock.style.height=`${parseFloat(getComputedStyle(dock).height)+(startY-e.clientY)}px`; startY=e.clientY; }});
+        window.addEventListener('pointerup',e=>{ if(isDragging){ isDragging=false; dock.classList.remove('no-transition'); setDockLock(true); }});
+        hArea.addEventListener('click',e=>{ if(!isDragging) toggleDockLock(); });
+        function toggleDockLock() { if(isDockLocked){setDockLock(false); dock.classList.add('force-close'); setTimeout(()=>dock.classList.remove('force-close'),300);} else setDockLock(true); }
+        function setDockLock(l) { isDockLocked=l; if(l){handle.classList.add('handle-locked'); handle.classList.remove('handle-unlocked'); dock.classList.add('active');} else {handle.classList.remove('handle-locked'); handle.classList.add('handle-unlocked'); dock.classList.remove('active');} }
+
+        // --- QUIZ ---
+        function setQMode(b,v){ currentQMode=v; document.querySelectorAll('.mode-btn.q-mode').forEach(x=>x.classList.remove('active')); b.classList.add('active'); }
+        function toggleAMode(b,v){ if(activeAModes.has(v)){if(activeAModes.size>1){activeAModes.delete(v);b.classList.remove('active');}}else{activeAModes.add(v);b.classList.add('active');} }
+        function openQuizOptions(){ 
+            const c=document.getElementById('quizOptionsContainer'); c.innerHTML='';
+            [...new Set(vocabList.map(v=>v.chapter))].sort((a,b)=>a-b).forEach(ch=>{
+                const cnt=vocabList.filter(v=>v.chapter===ch&&v.quiz==='1').length;
+                if(cnt>0) c.innerHTML+=`<div class="bg-slate-50 p-2 rounded text-center"><span class="font-bold">Ch ${ch}</span><br><span class="text-xs">Max:${cnt}</span><input type="number" id="opt_ch_${ch}" min="0" max="${cnt}" value="0" class="w-full border rounded text-center font-bold" oninput="valQ(this,${cnt})"></div>`;
+            });
+            updateTotalQ();
+            document.getElementById('quizOptionsOverlay').classList.remove('hidden'); document.getElementById('quizOptionsOverlay').classList.add('flex'); 
+        }
+        function closeQuizOptions(){ document.getElementById('quizOptionsOverlay').classList.add('hidden'); document.getElementById('quizOptionsOverlay').classList.remove('flex'); }
+        function valQ(e,m){ let v=parseInt(e.value)||0; if(v>m)v=m; e.value=v; updateTotalQ(); }
+        function updateTotalQ(){ let t=0; document.querySelectorAll('input[id^="opt_ch_"]').forEach(i=>t+=parseInt(i.value)||0); document.getElementById('totalQuizCountDisplay').innerText=t; }
+        function autoFillQuizOptions() {
+            document.querySelectorAll('input[id^="opt_ch_"]').forEach(e=>e.value=0);
+            const chs=[...new Set(vocabList.filter(v=>v.quiz==='1').map(v=>v.chapter))];
+            let rem=50;
+            chs.forEach(c=>{if(rem>0){const el=document.getElementById(`opt_ch_${c}`);if(el){el.value=1;rem--;}}});
+            while(rem>0&&chs.length>0){ const c=chs[Math.floor(Math.random()*chs.length)]; const el=document.getElementById(`opt_ch_${c}`); if(el&&parseInt(el.value)<parseInt(el.max)){el.value++;rem--;}else{chs.splice(chs.indexOf(c),1);} }
+            updateTotalQ();
+        }
+        function startCustomQuiz(){
+            let l=[]; document.querySelectorAll('input[id^="opt_ch_"]').forEach(i=>{ const n=parseInt(i.value)||0; if(n>0) l=l.concat(vocabList.filter(v=>v.chapter===i.id.replace('opt_ch_','')&&v.quiz==='1').sort(()=>0.5-Math.random()).slice(0,n)); });
+            if(l.length===0) return alert("Select"); generateQuiz(l); closeQuizOptions();
+        }
+        function startStandardQuiz(){ const l=vocabList.filter(v=>v.quiz==='1'); if(l.length===0)return alert("No Data"); generateQuiz(l.sort(()=>0.5-Math.random()).slice(0,50)); }
+        function generateQuiz(l){ 
+            quizQueue=l.map(i=>{
+                const ats=Array.from(activeAModes); const at=ats[Math.floor(Math.random()*ats.length)];
+                return {item:i, q:currentQMode, a:at};
+            });
+            currentQuizIndex=0; document.getElementById('quizOverlay').classList.remove('hidden'); renderCard();
+        }
+        function renderCard(){
+            if(currentQuizIndex>=quizQueue.length){ document.getElementById('quizCard').classList.add('hidden'); document.getElementById('quizFinale').classList.remove('hidden'); document.getElementById('quizFinale').classList.add('flex'); confetti(); return; }
+            const q=quizQueue[currentQuizIndex], i=q.item;
+            const lbls={dict:langPack[currentLang].type_dict,masu:langPack[currentLang].type_masu,nai:langPack[currentLang].type_nai,te:langPack[currentLang].type_te,ta:langPack[currentLang].type_ta};
+            const colors={dict:"text-slate-700",masu:"text-indigo-600",nai:"text-rose-600",te:"text-emerald-600",ta:"text-amber-600"};
+            
+            document.getElementById('quizType').innerText=lbls[q.a];
+            document.getElementById('quizType').className = `absolute top-10 right-12 text-4xl font-black ${colors[q.a]}`;
+            
+            document.getElementById('quizLabel').innerText=i.reading||'';
+            document.getElementById('quizQuestion').innerText=i[q.q];
+            document.getElementById('quizQuestion').className = `text-8xl font-black ${colors[q.q]} tracking-tight pb-2`;
+
+            document.getElementById('quizGroup').innerText=`Group ${i.group}`;
+            document.getElementById('quizAnswer').innerText=i[q.a];
+            document.getElementById('quizAnswer').className = `text-6xl font-bold ${colors[q.a]}`;
+            
+            document.getElementById('quizAnswerBox').classList.remove('opacity-100','translate-y-0');
+            document.getElementById('quizAnswerBox').classList.add('opacity-0','translate-y-6');
+            isAnswerShown=false;
+            document.getElementById('quizIndex').innerText=currentQuizIndex+1;
+            document.getElementById('quizTotal').innerText=quizQueue.length;
+            document.getElementById('quizCard').classList.remove('hidden');
+            document.getElementById('quizFinale').classList.add('hidden');
+            document.getElementById('quizFinale').classList.remove('flex');
+        }
+        function showAnswer(){ document.getElementById('quizAnswerBox').classList.remove('opacity-0','translate-y-6'); document.getElementById('quizAnswerBox').classList.add('opacity-100','translate-y-0'); isAnswerShown=true; }
+        function nextCard(){ currentQuizIndex++; renderCard(); }
+        function endQuiz(){ document.getElementById('quizOverlay').classList.add('hidden'); }
+        document.addEventListener('keydown',e=>{
+            if(document.getElementById('quizOverlay').classList.contains('hidden'))return;
+            if(['Space','ArrowRight','ArrowLeft'].includes(e.code)) e.preventDefault();
+            if(e.code==='Space') nextCard();
+            if(e.code==='ArrowRight') isAnswerShown?nextCard():showAnswer();
+            if(e.code==='ArrowLeft') if(currentQuizIndex>0){currentQuizIndex--;renderCard();}
+            if(e.code==='Escape') endQuiz();
+        });
+
+        // Smart Algo Placeholders
+        function reqHistoryUpload() { alert(langPack[currentLang].msg_req_file); document.getElementById('historyLoader').click(); }
+        function processHistoryFile(i){/*Omitted*/}
+
+        // Init
+        load(); 
+        changeLang('jp'); // Default Language
+        setQMode(document.querySelector('.mode-btn.q-mode.active'), 'masu');
+    </script>
+</body>
+</html>

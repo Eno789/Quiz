@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Random Matcher(Perfect Grid & Blue Leftover)</title>
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/3557/3557582.png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=Noto+Sans+KR:wght@300;400;500;700;900&family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        body { font-family: 'Inter', 'Noto Sans KR', 'Noto Sans JP', sans-serif; overflow-x: hidden; }
+        
+        /* === Visualizer Layer === */
+        #visualizerLayer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #0f172a; z-index: 999; display: none; }
+        .viz-node { position: absolute; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 5px 15px rgba(0,0,0,0.5); z-index: 1000; border: 3px solid rgba(255,255,255,0.7); background: radial-gradient(circle at 30% 30%, #475569, #1e293b); color: white; font-weight: bold; text-align: center; line-height: 1.1; will-change: top, left, width, height, transform; transition: top 0.8s cubic-bezier(0.25, 1, 0.5, 1), left 0.8s cubic-bezier(0.25, 1, 0.5, 1), width 0.5s ease, height 0.5s ease, transform 0.3s ease; }
+        .viz-node.conflict { border-color: #ef4444; background: radial-gradient(circle at 30% 30%, #ef4444, #7f1d1d); box-shadow: 0 0 40px #ef4444; z-index: 1010; animation: shake 0.4s infinite; }
+        .viz-node.matched { border-color: #10b981; background: radial-gradient(circle at 30% 30%, #10b981, #064e3b); box-shadow: 0 0 25px #10b981; z-index: 900; }
+        .viz-node.leftover { border-color: #3b82f6; background: radial-gradient(circle at 30% 30%, #3b82f6, #1e3a8a); box-shadow: 0 0 35px #3b82f6; z-index: 950; }
+        svg#vizLinesLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 800; }
+        .connection-line { fill: none; stroke: #10b981; stroke-width: 4; stroke-linecap: round; opacity: 0; filter: drop-shadow(0 0 5px #10b981); transition: opacity 0.5s; }
+        .connection-line.visible { opacity: 0.6; }
+        .match-pop { animation: popIn 0.3s forwards; }
+        @keyframes popIn { 0% { transform: scale(0.9); opacity: 0; } 60% { transform: scale(1.05); } 100% { transform: scale(1); opacity: 1; } }
+        .paper-plane { position: fixed; z-index: 9999; font-size: 40px; line-height: 1; filter: drop-shadow(0 5px 10px rgba(0,0,0,0.4)); transition: transform 1.2s cubic-bezier(0.45, 0, 0.55, 1), opacity 1.2s ease-in; pointer-events: none; }
+        .gold-group { border: 4px solid #F59E0B !important; background: linear-gradient(135deg, #fff 0%, #fff7ed 100%); box-shadow: 0 0 30px rgba(245, 158, 11, 0.6); transform: scale(1.02); }
+        .timer-container { width: 100%; height: 450px; background: #1e293b; border-radius: 16px; overflow: hidden; position: relative; margin-bottom: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 4px solid #475569; }
+        .timer-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899); background-size: 200% 100%; animation: gradientMove 3s linear infinite; transition: width 1s linear; }
+        @keyframes gradientMove { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+        .timer-text-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; pointer-events: none; }
+        .timer-digits { font-family: 'JetBrains Mono', monospace; font-weight: 900; font-size: 8rem; color: #fff; text-shadow: 0 10px 20px rgba(0,0,0,0.5); line-height: 1; }
+        .timer-label { font-size: 1.5rem; color: #94a3b8; margin-top: 1rem; letter-spacing: 0.2em; }
+        .timer-controls { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.4); backdrop-filter: blur(2px); opacity: 0; transition: opacity 0.3s ease; z-index: 20; }
+        .timer-container:hover .timer-controls { opacity: 1; }
+        .control-btn { background: white; border-radius: 50%; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; font-size: 2rem; cursor: pointer; box-shadow: 0 10px 20px rgba(0,0,0,0.3); transition: transform 0.2s; }
+        .data-dock { transform: translateY(calc(100% - 3.5rem)); transition: transform 0.3s ease-out; z-index: 40; } .data-dock:hover { transform: translateY(0); }
+        .shake-constant { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both infinite; }
+        @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-2px, 0, 0); } 40%, 60% { transform: translate3d(2px, 0, 0); } }
+        .matrix-text { font-family: 'JetBrains Mono', monospace; font-size: 9px; line-height: 1.2; }
+        .scan-line { width: 100%; height: 2px; background: rgba(0, 255, 0, 0.3); position: absolute; top: 0; left: 0; animation: scan 2s linear infinite; pointer-events: none; }
+        @keyframes scan { 0% { top: 0%; } 100% { top: 100%; } }
+        ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        /* === Advanced Table Logic === */
+        .allow-select { user-select: text; -webkit-user-select: text; cursor: text; }
+        .select-area { cursor: pointer; user-select: none; transition: background 0.2s; }
+        .row-selected { background-color: rgba(99, 102, 241, 0.2) !important; border-left: 4px solid #6366f1 !important; }
+        .row-absent { opacity: 0.6; background-color: rgba(241, 245, 249, 0.05); }
+        .header-edit-mode { background-color: #4f46e5 !important; color: white !important; }
+        .header-edit-mode select, .header-edit-mode input { color: #1e293b !important; border-radius: 4px; border: none; padding: 2px 5px; }
+        .edit-btn { opacity: 0; transition: opacity 0.2s, transform 0.2s; cursor: pointer; font-size: 0.9rem; color: #94a3b8; margin-left: 6px; }
+        tr:hover .edit-btn { opacity: 1; }
+        .edit-btn:hover { transform: scale(1.2); color: #4f46e5; }
+    </style>
+</head>
+<body class="bg-slate-100 h-screen flex flex-col overflow-hidden" onmouseup="stopRowDrag()">
+
+    <div class="bg-white border-b border-slate-200 px-6 py-3 flex justify-between items-center shadow-sm z-30 relative">
+        <div>
+            <h1 class="text-2xl font-black text-slate-800 tracking-tight" data-key="title">🚀 랜덤 매칭</h1>
+            <p class="text-xs text-slate-500 font-medium" data-key="subtitle">Auto-Scaling Grid & Blue Leftover</p>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="relative group py-2">
+                <button class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition relative z-10"><span class="text-xl">✨</span><span class="text-sm font-bold text-slate-700" id="currentEffectLabel">화려한</span></button>
+                <div class="absolute right-0 top-full pt-1 hidden group-hover:block w-40 z-50">
+                    <div class="bg-white border border-slate-200 shadow-xl rounded-lg overflow-hidden ring-1 ring-black ring-opacity-5">
+                        <button onclick="setEffectMode('simple')" class="block w-full text-left px-4 py-3 text-sm hover:bg-indigo-50 hover:text-indigo-600 font-medium border-b" data-key="eff_simple">🔵 간단한</button>
+                        <button onclick="setEffectMode('visualizer')" class="block w-full text-left px-4 py-3 text-sm hover:bg-indigo-50 hover:text-indigo-600 font-medium" data-key="eff_fancy">🌟 화려한</button>
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="location.href='main.html'" class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition relative z-10">
+                <span class="text-xl">🧩</span>
+                <span class="text-sm font-bold text-slate-700" data-key="btn_quiz">퀴즈</span>
+            </button>
+
+            <div class="relative group py-2">
+                <button class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition relative z-10"><span class="text-xl">🌐</span><span class="text-sm font-bold text-slate-700" id="currentLangLabel">日本語</span></button>
+                <div class="absolute right-0 top-full pt-1 hidden group-hover:block w-36 z-50">
+                    <div class="bg-white border border-slate-200 shadow-xl rounded-lg overflow-hidden ring-1 ring-black ring-opacity-5">
+                        <button onclick="setLanguage('ko')" class="block w-full text-left px-4 py-3 text-sm hover:bg-indigo-50 hover:text-indigo-600 font-medium">🇰🇷 한국어</button>
+                        <button onclick="setLanguage('en')" class="block w-full text-left px-4 py-3 text-sm hover:bg-indigo-50 hover:text-indigo-600 font-medium">🇺🇸 English</button>
+                        <button onclick="setLanguage('jp')" class="block w-full text-left px-4 py-3 text-sm hover:bg-indigo-50 hover:text-indigo-600 font-medium">🇯🇵 日本語</button>
+                    </div>
+                </div>
+            </div>
+            
+            <button onclick="resetList()" class="text-xs text-gray-400 hover:text-red-500 underline whitespace-nowrap" data-key="reset_list">명단 초기화</button>
+        </div>
+    </div>
+
+    <div class="flex-1 flex flex-col lg:flex-row overflow-hidden relative z-10" id="mainContentArea">
+        
+        <div id="visualizerLayer">
+            <div class="absolute inset-0 opacity-20 pointer-events-none" style="background-image: radial-gradient(#6366f1 1px, transparent 1px); background-size: 40px 40px; position: fixed;"></div>
+            <div class="absolute top-5 left-0 w-full text-center z-50 pointer-events-none">
+                <div id="vizStatusText" class="inline-block px-6 py-2 rounded-full bg-slate-800/90 border border-indigo-500/50 text-indigo-300 font-bold font-mono text-sm shadow-lg shadow-indigo-500/20">Initializing...</div>
+            </div>
+            <svg id="vizLinesLayer"></svg>
+            <div id="vizNodesContainer" class="absolute inset-0 w-full h-full z-40"></div>
+        </div>
+
+        <div class="w-full lg:w-1/3 bg-slate-50 border-r border-slate-200 flex flex-col overflow-y-auto p-4 gap-4 pb-20 custom-scroll">
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 hover:border-indigo-300 transition group">
+                <h2 class="font-bold text-slate-800 mb-2 flex items-center gap-2"><span class="text-green-600">📂</span> <span data-key="excel_title">엑셀 파일 등록</span></h2>
+                <div class="flex flex-col gap-2">
+                    <input type="file" id="excelInput" accept=".xlsx, .xls, .csv" class="block w-full text-sm text-slate-500 file:mr-2 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer border border-slate-200 rounded-lg p-1"/>
+                    <div class="flex gap-2 w-full">
+                        <button onclick="processExcelFile()" class="flex-1 bg-slate-700 hover:bg-slate-800 text-white font-bold py-2.5 rounded-lg transition shadow active:scale-95 text-sm" data-key="excel_btn">Import</button>
+                        <button onclick="exportData()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-lg transition shadow active:scale-95 text-sm flex items-center justify-center gap-2"><i class="fa-solid fa-download"></i> <span data-key="excel_export">Export</span></button>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                <h2 class="font-bold text-slate-800 mb-3 flex items-center gap-2"><span class="text-blue-600">✍️</span> <span data-key="manual_title">수동 등록</span></h2>
+                <div class="mb-4">
+                     <div class="flex justify-between items-center mb-1"><label class="text-xs font-bold text-slate-400" data-key="country_manage">국가 관리</label><button onclick="toggleCountryEditMode()" id="editCountryBtn" class="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold transition flex items-center gap-1"><span id="editBtnIcon">⚙️</span> <span id="editBtnText" data-key="btn_edit">편집</span></button></div>
+                    <div class="flex gap-2 mb-2"><input type="text" id="newCountryInput" placeholder="New Country" class="flex-1 px-3 py-1.5 text-sm border border-blue-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"><button onclick="addNewCountry()" class="bg-blue-600 text-white text-xs px-3 rounded-md font-bold hover:bg-blue-700 whitespace-nowrap" data-key="add_btn">추가</button></div>
+                    <div id="emptyCountryMsg" class="text-xs text-slate-400 text-center py-2 hidden bg-slate-50 rounded border border-dashed border-slate-300">데이터 없음.<br>국가를 추가하거나 엑셀을 업로드하세요.</div>
+                    <div class="flex flex-wrap gap-1.5 mb-1 max-h-32 overflow-y-auto min-h-[40px] p-1 bg-slate-50 rounded-lg border border-slate-100" id="countryTabs"></div>
+                    <div class="text-[10px] text-right text-slate-400 mt-1"><span data-key="current_sel">선택됨:</span> <span id="selectedCountryDisplay" class="font-bold text-indigo-600">-</span></div>
+                </div>
+                <div class="flex gap-2"><input type="text" id="nameInput" placeholder="Name" class="flex-1 px-3 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm shadow-sm" onkeypress="if(event.key === 'Enter') addPerson()"><button onclick="addPerson()" class="bg-indigo-600 text-white px-5 rounded-xl font-bold hover:bg-indigo-700 shadow-md active:scale-95 text-lg">+</button></div>
+            </div>
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 border-l-4 border-l-amber-400">
+                <h2 class="font-bold text-slate-800 mb-3 flex items-center gap-2"><span class="text-amber-500">⏱️</span> <span data-key="timer_title">타이머 설정</span></h2>
+                <div class="flex items-center gap-2 mb-4">
+                    <div class="flex-1"><label class="text-[10px] text-slate-400 font-bold mb-1 block" data-key="label_min">분</label><input type="number" id="timerMin" min="0" value="0" class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded text-center font-bold"></div>
+                    <div class="font-bold text-slate-300 mt-4">:</div>
+                    <div class="flex-1"><label class="text-[10px] text-slate-400 font-bold mb-1 block" data-key="label_sec">초</label><input type="number" id="timerSec" min="0" max="59" value="0" class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded text-center font-bold"></div>
+                </div>
+                <div class="mb-4 bg-slate-50 p-2 rounded border border-slate-100">
+                    <div class="flex justify-between items-end mb-1"><label class="text-[10px] text-slate-500 font-bold" data-key="label_delay">등장 딜레이</label><span id="delayDisplay" class="text-xs font-bold text-indigo-600">30s</span></div>
+                    <input type="range" id="delayControl" min="0" max="60" value="30" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500" oninput="document.getElementById('delayDisplay').innerText = this.value + 's'">
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="flex-1"><label class="text-[10px] text-slate-400 font-bold mb-1 block" data-key="label_vol">알람 볼륨</label><input type="range" id="volumeControl" min="0" max="100" value="50" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-amber-500"></div>
+                    <button onclick="testAudio()" class="mt-4 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-xs font-bold rounded text-slate-600 transition" data-key="test_sound">🔊 테스트</button>
+                </div>
+            </div>
+            <div class="bg-slate-200/50 p-4 rounded-2xl border border-slate-200">
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-wider text-center" data-key="total_count">TOTAL MEMBERS</p>
+                <div class="text-4xl font-black text-slate-800 my-1 text-center"><span id="count">0</span></div>
+                <div class="mt-4 bg-slate-900 rounded-lg p-3 border border-slate-700 shadow-inner relative overflow-hidden h-32 flex flex-col">
+                    <div class="scan-line"></div>
+                    <div class="flex justify-between items-center border-b border-slate-700 pb-1 mb-2"><span class="text-[10px] text-slate-400 font-bold">⚡ SYSTEM CORE</span><span id="logStatus" class="text-[10px] text-green-500 font-bold">IDLE</span></div>
+                    <div id="calcDisplay" class="matrix-text text-green-400 flex-1 overflow-hidden break-all whitespace-pre-wrap">System Ready...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-full lg:w-2/3 bg-slate-100 p-4 md:p-6 flex flex-col h-full relative">
+            <button onclick="startMatchingProcess()" class="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:to-pink-700 text-white text-xl font-black py-4 rounded-2xl shadow-lg shadow-indigo-200 transform transition active:scale-[0.98] mb-4 flex justify-center items-center gap-3 z-10 group overflow-hidden relative">
+                <div class="absolute inset-0 bg-white/20 group-hover:translate-x-full transition duration-500 transform -skew-x-12 -translate-x-full"></div>
+                <span class="text-2xl animate-bounce">🎲</span>
+                <span data-key="start_matching">START MATCHING</span>
+            </button>
+            <div class="flex-1 bg-slate-900 rounded-3xl shadow-2xl p-4 relative overflow-hidden border border-slate-700 flex flex-col z-0">
+                <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(#6366f1 1px, transparent 1px); background-size: 30px 30px;"></div>
+                <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-800/50 to-slate-900 pointer-events-none"></div>
+                <h2 class="text-white font-bold text-lg mb-4 z-10 flex items-center gap-3 pl-2 border-b border-slate-700 pb-2">
+                    <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
+                    <span data-key="result_title">LIVE RESULT</span>
+                </h2>
+                <div id="matchingStage" class="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto z-10 flex-1 content-start pb-24 px-2 custom-scroll relative">
+                    <div class="col-span-1 md:col-span-2 flex flex-col items-center justify-center h-64 text-slate-600 mt-10"><div class="text-7xl mb-4 opacity-20">🎰</div><p class="text-slate-500" data-key="waiting_msg">Ready to match...</p></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="data-dock fixed bottom-0 left-0 w-full h-96 bg-slate-900/95 backdrop-blur-xl border-t border-slate-700 shadow-[0_-10px_50px_rgba(0,0,0,0.6)] flex flex-col z-[80]">
+        <div class="h-14 flex items-center justify-between px-6 bg-slate-800/80 border-b border-slate-600">
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl text-white">📋</span>
+                    <div>
+                        <span class="font-bold text-white text-lg block leading-none" data-key="list_title">참가자 명단</span>
+                        <div class="flex gap-2 text-[10px] mt-0.5">
+                            <span class="text-slate-400">Total: <span id="dockCount" class="text-white font-bold">0</span></span>
+                            <span class="text-slate-500">|</span>
+                            <span class="text-slate-400"><span data-key="current_sel">Selected:</span> <span id="selCount" class="text-indigo-400 font-bold">0</span></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="h-8 w-px bg-slate-600 mx-2"></div>
+                <div class="flex gap-2">
+                     <button onclick="sortList()" class="text-slate-300 hover:text-white px-3 py-1 rounded text-xs font-bold border border-slate-600 hover:bg-slate-700 transition" data-key="btn_sort">Sort</button>
+                     <button onclick="deleteSelected()" class="text-slate-300 hover:text-red-400 px-3 py-1 rounded text-xs font-bold border border-slate-600 hover:bg-slate-700 transition" data-key="del_sel">Del Sel</button>
+                     <button onclick="resetList()" class="text-red-400 hover:text-white hover:bg-red-600 px-3 py-1 rounded text-xs font-bold border border-red-900/50 transition" data-key="del_all">Del All</button>
+                </div>
+            </div>
+        </div>
+        <div class="flex-1 overflow-auto p-6" onmouseleave="stopRowDrag()">
+            <div class="max-w-7xl mx-auto bg-slate-800/50 rounded-xl overflow-hidden border border-slate-700">
+                <table class="w-full text-sm text-left text-slate-300 relative">
+                    <thead id="dockHeader" class="text-xs text-slate-400 uppercase bg-slate-700/80 sticky top-0 backdrop-blur z-10 transition-colors duration-300"></thead>
+                    <tbody id="dockTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="ladderOverlay" class="fixed inset-0 bg-slate-900/95 z-[90] hidden flex flex-col items-center justify-center"><h2 class="text-white text-4xl font-black mb-2 animate-bounce">🪜 Complex Ladder</h2><p class="text-slate-400 mb-6 text-sm">Determining destination...</p><div class="relative bg-white rounded-xl shadow-2xl p-4"><canvas id="ladderCanvas"></canvas></div></div>
+
+    <script>
+        const STORAGE_KEY = 'rm_v2_data';
+        const EXPIRY_MS = 3 * 60 * 60 * 1000; // 3 Hours
+
+        const i18n={
+            ko:{
+                title:"🚀 랜덤 매칭",subtitle:"made by Eno7",country_manage:"국가 관리",btn_edit:"편집",btn_done:"종료",add_btn:"추가",current_sel:"현재 선택:",total_count:"등록된 인원",reset_list:"명단 초기화",start_matching:"매칭 시작 (START)",result_title:"매칭 결과",waiting_msg:"참가자를 추가하고 시작하세요!",list_title:"참가자 명단",list_hover:"마우스를 올려서 확인하세요",col_name:"이름",col_country:"국가",col_action:"관리",excel_title:"엑셀 파일 등록",excel_btn:"분석 및 추가", excel_export:"저장 (CSV)", manual_title:"수동 등록",alert_no_name:"이름 입력 필요",alert_min_user:"최소 2명 필요",leftover:"😢 깍두기",timer_title:"타이머 설정",label_min:"분",label_sec:"초",label_vol:"알람 볼륨",test_sound:"🔊 테스트",timer_done:"TIME UP!",label_rem:"남은 시간",label_delay:"타이머 등장 딜레이",eff_simple:"🔵 간단한",eff_fancy:"🌟 화려한",
+                btn_quiz: "퀴즈", btn_sort:"정렬", del_sel:"선택 삭제", del_all:"전체 삭제",
+                col_status: "출석 여부", st_present: "출석 (O)", st_absent: "결석 (X)"
+            },
+            en:{
+                title:"🚀 Random Matcher",subtitle:"made by Eno7",country_manage:"Countries",btn_edit:"Edit",btn_done:"Done",add_btn:"Add",current_sel:"Selected:",total_count:"Total",reset_list:"Reset List",start_matching:"START MATCHING",result_title:"LIVE RESULT",waiting_msg:"Add members...",list_title:"Member List",list_hover:"Hover to view",col_name:"Name",col_country:"Country",col_action:"Action",excel_title:"Import Excel",excel_btn:"Import", excel_export:"Export (CSV)", manual_title:"Manual Entry",alert_no_name:"Name required",alert_min_user:"Min 2 people",leftover:"😢 Leftover",timer_title:"Timer Setup",label_min:"Min",label_sec:"Sec",label_vol:"Volume",test_sound:"🔊 Test",timer_done:"TIME UP!",label_rem:"REMAINING TIME",label_delay:"Timer Delay",eff_simple:"🔵 Simple",eff_fancy:"🌟 Fancy",
+                btn_quiz: "Quiz", btn_sort:"Sort", del_sel:"Del Sel", del_all:"Del All",
+                col_status: "Attendance", st_present: "Present (O)", st_absent: "Absent (X)"
+            },
+            jp:{
+                title:"🚀 ランダムマッチング",subtitle:"made by パク",country_manage:"国管理",btn_edit:"編集",btn_done:"終了",add_btn:"追加",current_sel:"選択中:",total_count:"登録人数",reset_list:"初期化",start_matching:"マッチング開始",result_title:"マッチング結果",waiting_msg:"参加者を追加...",list_title:"参加者リスト",list_hover:"確認",col_name:"名前",col_country:"国",col_action:"管理",excel_title:"Excel登録",excel_btn:"分析・追加", excel_export:"保存 (CSV)", manual_title:"手動登録",alert_no_name:"名前入力必須",alert_min_user:"最低2名",leftover:"😢 余り",timer_title:"タイマー設定",label_min:"分",label_sec:"秒",label_vol:"音量",test_sound:"🔊 テスト",timer_done:"時間終了！",label_rem:"残り時間",label_delay:"タイマー遅延",eff_simple:"🔵 シンプル",eff_fancy:"🌟 豪華",
+                btn_quiz: "クイズ", btn_sort:"整列", del_sel:"選択削除", del_all:"全削除",
+                col_status: "出席確認", st_present: "出席 (O)", st_absent: "欠席 (X)"
+            }
+        };
+        let currentLang='jp', currentEffect='visualizer', activeCountries=[], currentCountry='', people=[], isMatching=false, isCountryEditMode=false;
+        let globalTimerInterval, timerDelayTimeout, isTimerPaused=false, isTimeUpState=false, calcInterval, alarmTimeoutId;
+        const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+
+        // Row Selection Vars
+        let lastSelectedId = null, isRowDragging = false, rowDragState = false;
+
+        function sanitizeText(s){return s?String(s).replace(/\uFFFD/g,'').trim():'';}
+        function getCountryColorClass(c){let h=0;for(let i=0;i<c.length;i++)h=c.charCodeAt(i)+((h<<5)-h);return ['bg-rose-100 text-rose-800','bg-blue-100 text-blue-800','bg-emerald-100 text-emerald-800','bg-amber-100 text-amber-800','bg-violet-100 text-violet-800','bg-cyan-100 text-cyan-800'][Math.abs(h)%6];}
+        function getHexColor(c){let h=0;for(let i=0;i<c.length;i++)h=c.charCodeAt(i)+((h<<5)-h);return ['#f43f5e','#3b82f6','#10b981','#f59e0b','#8b5cf6','#06b6d4'][Math.abs(h)%6];}
+        
+        function setLanguage(l){
+            currentLang=l;
+            localStorage.setItem('appLang',l);
+            document.querySelectorAll('[data-key]').forEach(el=>{const k=el.getAttribute('data-key');if(i18n[l][k])el.innerText=i18n[l][k]});
+            document.getElementById('currentLangLabel').innerText={ko:'한국어',en:'English',jp:'日本語'}[l];
+            setEffectMode(currentEffect);
+            updateEditButtonUI(); 
+            renderTable();
+        }
+        function setEffectMode(m){currentEffect=m;const map={ko:{simple:'간단한',visualizer:'화려한'},en:{simple:'Simple',visualizer:'Fancy'},jp:{simple:'シンプル',visualizer:'豪華'}};document.getElementById('currentEffectLabel').innerText=map[currentLang][m];}
+
+        // --- Storage Logic (3 Hours) ---
+        function saveData() {
+            const data = {
+                timestamp: Date.now(),
+                people: people,
+                countries: activeCountries,
+                lang: currentLang
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        }
+
+        function loadData() {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if(raw) {
+                const data = JSON.parse(raw);
+                if (Date.now() - data.timestamp < EXPIRY_MS) {
+                    people = data.people || [];
+                    activeCountries = data.countries || [];
+                    if(data.lang) currentLang = data.lang;
+                } else {
+                    // Expired
+                    localStorage.removeItem(STORAGE_KEY);
+                    people = [];
+                    activeCountries = [];
+                }
+            }
+            // Ensure checked is false on load to prevent UI glitches
+            people.forEach(p => p.checked = false);
+        }
+
+        function renderTabs(){const c=document.getElementById('countryTabs'),m=document.getElementById('emptyCountryMsg');c.innerHTML='';if(!activeCountries.length){currentCountry='';m.classList.remove('hidden');document.getElementById('selectedCountryDisplay').innerText='-';}else{m.classList.add('hidden');if(!activeCountries.includes(currentCountry))currentCountry=activeCountries[0];document.getElementById('selectedCountryDisplay').innerText=currentCountry;activeCountries.forEach(k=>{const b=document.createElement('button');b.className=isCountryEditMode?`px-2 py-1 text-xs font-bold rounded border bg-red-50 text-red-600 border-red-200 shake-constant mb-1 mr-1`:`px-2 py-1 text-xs font-bold rounded border mb-1 mr-1 ${k===currentCountry?'bg-indigo-600 text-white':'bg-white text-gray-600'}`;b.innerText=k+(isCountryEditMode?' ✕':'');b.onclick=isCountryEditMode?()=>deleteCountry(k):()=>{currentCountry=k;renderTabs()};c.appendChild(b);});}}
+        function updateEditButtonUI(){const b=document.getElementById('editCountryBtn'),i=document.getElementById('editBtnIcon'),t=document.getElementById('editBtnText');if(isCountryEditMode){b.className="text-xs px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white font-bold transition flex items-center gap-1 shadow-md";i.innerText="✅";t.innerText=i18n[currentLang].btn_done;}else{b.className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold transition flex items-center gap-1";i.innerText="⚙️";t.innerText=i18n[currentLang].btn_edit;}}
+        function toggleCountryEditMode(){isCountryEditMode=!isCountryEditMode;updateEditButtonUI();renderTabs();}
+        function deleteCountry(c){if(confirm('Delete?')){activeCountries=activeCountries.filter(x=>x!==c);saveData();renderTabs();}}
+        function addNewCountry(){const v=sanitizeText(document.getElementById('newCountryInput').value);if(v&&!activeCountries.includes(v)){activeCountries.push(v);currentCountry=v;saveData();}renderTabs();document.getElementById('newCountryInput').value='';}
+        
+        function addPerson(){
+            if(!currentCountry) return alert("Country needed");
+            const n=sanitizeText(document.getElementById('nameInput').value);
+            if(n){
+                people.push({id: Date.now()+Math.random().toString(), name:n, country:currentCountry, status: true, checked: false});
+                document.getElementById('nameInput').value='';
+                saveData();
+                renderTable();
+            }
+        }
+        
+        // --- Advanced Table Logic ---
+        function renderTable(){
+            document.getElementById('count').innerText=people.length;
+            document.getElementById('dockCount').innerText=people.length;
+            
+            const selCnt = people.filter(p => p.checked).length;
+            document.getElementById('selCount').innerText = selCnt;
+            
+            const tb = document.getElementById('dockTableBody');
+            const th = document.getElementById('dockHeader');
+            tb.innerHTML = '';
+
+            const isEdit = selCnt > 0;
+            const lp = i18n[currentLang];
+            th.className = isEdit ? "text-xs uppercase sticky top-0 z-20 shadow-sm header-edit-mode transition-colors duration-300" : "text-xs text-slate-400 uppercase bg-slate-700/80 sticky top-0 backdrop-blur z-20 transition-colors duration-300";
+
+            // Header Generation
+            let h = `<tr><th class="px-6 py-3 w-10 text-center select-area" onclick="toggleAll()"><input type="checkbox" class="pointer-events-none" ${selCnt===people.length&&people.length>0?'checked':''}></th>`;
+            
+            if (isEdit) {
+                 h += `<th class="px-6 py-3 text-white">${lp.col_name} <input type="text" onchange="bulk('name',this.value)" class="w-20 text-slate-800 rounded px-1" placeholder="Batch..."></th>`;
+                 
+                 let cOpt = `<option value="">Batch Change...</option>`;
+                 activeCountries.forEach(c => cOpt += `<option value="${c}">${c}</option>`);
+                 
+                 // Status Bulk Edit
+                 let sOpt = `<option value="">Batch Change...</option>
+                             <option value="true">${lp.st_present}</option>
+                             <option value="false">${lp.st_absent}</option>`;
+
+                 h += `<th class="px-6 py-3 text-white">${lp.col_country} <select onchange="bulk('country',this.value)" class="text-slate-800 rounded px-1">${cOpt}</select></th>`;
+                 h += `<th class="px-6 py-3 text-white">${lp.col_status} <select onchange="bulk('status',this.value)" class="text-slate-800 rounded px-1">${sOpt}</select></th>`;
+                 h += `<th class="px-6 py-3 text-right"></th></tr>`;
+            } else {
+                 h += `<th class="px-6 py-3">${lp.col_name}</th><th class="px-6 py-3">${lp.col_country}</th><th class="px-6 py-3 text-center">${lp.col_status}</th><th class="px-6 py-3 text-right">${lp.col_action}</th></tr>`;
+            }
+            th.innerHTML = h;
+
+            // Row Generation
+            const list = people.slice().reverse(); // Display newest first
+            list.forEach((p, idx) => {
+                const tr = document.createElement('tr');
+                let rowClass = "border-b border-slate-700 hover:bg-slate-700/50 ";
+                if(p.checked) rowClass += "bg-indigo-900/40 row-selected ";
+                else if(!p.status) rowClass += "bg-slate-800/50 row-absent ";
+                else rowClass += "bg-slate-800/50 ";
+                
+                tr.className = rowClass;
+                
+                const editName = `<div class="flex items-center gap-2 allow-select"><span class="cursor-text font-bold text-white">${p.name}</span><i class="fa-solid fa-pencil edit-btn" onclick="editCell('${p.id}', 'name')"></i></div>`;
+                const editCountry = `<div class="flex items-center gap-2"><span class="${getCountryColorClass(p.country)} px-2 py-0.5 rounded text-[10px]">${p.country}</span><i class="fa-solid fa-pencil edit-btn" onclick="editCountrySelect('${p.id}', this)"></i></div>`;
+                
+                // Status Badge
+                const statusBadge = p.status 
+                    ? `<span class="bg-green-500/20 text-green-400 border border-green-500/50 px-2 py-1 rounded text-xs font-bold cursor-pointer hover:bg-green-500/30 transition" onclick="toggleStatus('${p.id}')">${lp.st_present}</span>` 
+                    : `<span class="bg-red-500/20 text-red-400 border border-red-500/50 px-2 py-1 rounded text-xs font-bold cursor-pointer hover:bg-red-500/30 transition" onclick="toggleStatus('${p.id}')">${lp.st_absent}</span>`;
+
+                tr.innerHTML = `
+                    <td class="px-6 py-3 text-center select-area" onmousedown="rowDown(event, '${p.id}')" onmouseenter="rowEnter('${p.id}')">
+                        <input type="checkbox" class="pointer-events-none" ${p.checked?'checked':''}>
+                    </td>
+                    <td class="px-6 py-3">${editName}</td>
+                    <td class="px-6 py-3">${editCountry}</td>
+                    <td class="px-6 py-3 text-center"><div class="flex items-center justify-center gap-2">${statusBadge}<i class="fa-solid fa-pencil edit-btn" onclick="editStatusSelect('${p.id}', this)"></i></div></td>
+                    <td class="px-6 py-3 text-right"><button onclick="deleteOne('${p.id}')" class="text-slate-500 hover:text-red-400 text-xs"><i class="fa-solid fa-trash"></i></button></td>
+                `;
+                tb.appendChild(tr);
+            });
+        }
+
+        // Selection Logic
+        function rowDown(e, id) {
+            e.stopPropagation();
+            const item = people.find(p => p.id === id);
+            if(e.shiftKey && lastSelectedId) {
+                const revList = people.slice().reverse();
+                const idx1 = revList.findIndex(p => p.id === id);
+                const idx2 = revList.findIndex(p => p.id === lastSelectedId);
+                const start = Math.min(idx1, idx2), end = Math.max(idx1, idx2);
+                for(let i=start; i<=end; i++) revList[i].checked = true;
+            } else if (e.ctrlKey || e.metaKey) {
+                item.checked = !item.checked;
+                lastSelectedId = id;
+            } else {
+                 const wasChecked = item.checked;
+                 people.forEach(p => p.checked = false);
+                 item.checked = !wasChecked;
+                 lastSelectedId = item.checked ? id : null;
+                 isRowDragging = item.checked;
+                 rowDragState = true; 
+            }
+            if(!e.ctrlKey && !e.shiftKey && item.checked) {
+                isRowDragging = true;
+                rowDragState = true;
+                lastSelectedId = id;
+            }
+            renderTable();
+        }
+        function rowEnter(id) {
+            if(isRowDragging) {
+                const item = people.find(p => p.id === id);
+                if(item) { item.checked = rowDragState; renderTable(); }
+            }
+        }
+        function stopRowDrag() { isRowDragging = false; }
+        function toggleAll() {
+            const all = people.every(p => p.checked);
+            people.forEach(p => p.checked = !all);
+            renderTable();
+        }
+
+        // Edit Logic
+        function deleteOne(id) { people = people.filter(p => p.id !== id); saveData(); renderTable(); }
+        function deleteSelected() { people = people.filter(p => !p.checked); saveData(); renderTable(); }
+        
+        function editCell(id, field) {
+            const p = people.find(x => x.id === id); if(!p) return;
+            const val = prompt("Edit Name", p.name);
+            if(val) { p.name = val.trim(); saveData(); renderTable(); }
+        }
+
+        function editCountrySelect(id, btn) {
+            const p = people.find(x => x.id === id); if(!p) return;
+            const container = btn.parentNode;
+            const select = document.createElement('select');
+            select.className = "text-xs p-1 border rounded text-black shadow-lg absolute z-50";
+            activeCountries.forEach(c => {
+                const op = document.createElement('option');
+                op.value = c; op.text = c;
+                if(c === p.country) op.selected = true;
+                select.appendChild(op);
+            });
+            container.innerHTML = ''; container.appendChild(select);
+            select.focus();
+            select.onclick = (e) => e.stopPropagation();
+            select.onchange = function() {
+                p.country = this.value; saveData(); renderTable();
+            };
+            select.onblur = () => renderTable();
+        }
+        
+        function toggleStatus(id) {
+            const p = people.find(x => x.id === id);
+            if(p) { p.status = !p.status; saveData(); renderTable(); }
+        }
+
+        function editStatusSelect(id, btn) {
+            const p = people.find(x => x.id === id); if(!p) return;
+            const container = btn.parentNode;
+            const select = document.createElement('select');
+            select.className = "text-xs p-1 border rounded text-black shadow-lg absolute z-50";
+            
+            const lp = i18n[currentLang];
+            const op1 = document.createElement('option'); op1.value = "true"; op1.text = lp.st_present; if(p.status) op1.selected = true;
+            const op2 = document.createElement('option'); op2.value = "false"; op2.text = lp.st_absent; if(!p.status) op2.selected = true;
+            
+            select.appendChild(op1); select.appendChild(op2);
+            container.innerHTML = ''; container.appendChild(select);
+            select.focus();
+            select.onclick = (e) => e.stopPropagation();
+            select.onchange = function() {
+                p.status = (this.value === 'true'); saveData(); renderTable();
+            };
+            select.onblur = () => renderTable();
+        }
+
+        function bulk(field, val) {
+            if(val === "") return;
+            people.forEach(p => { 
+                if(p.checked) {
+                    if(field === 'status') p[field] = (val === 'true');
+                    else p[field] = val; 
+                }
+            });
+            saveData();
+            renderTable();
+        }
+        
+        function sortList() {
+            // Sort by Country then Name
+            people.sort((a, b) => {
+                if(a.country !== b.country) return a.country.localeCompare(b.country);
+                return a.name.localeCompare(b.name);
+            });
+            saveData();
+            renderTable();
+        }
+
+        function resetList(){if(confirm('Reset?')){people=[];activeCountries=[];saveData();renderTabs();renderTable();clearInterval(globalTimerInterval);clearTimeout(timerDelayTimeout);stopAlarm();document.getElementById('matchingStage').innerHTML=`<div class="col-span-1 md:col-span-2 flex flex-col items-center justify-center h-64 text-slate-600 mt-10"><div class="text-7xl mb-4 opacity-20">🎰</div></div>`;appendLog("System Reset.",true);}}
+        
+        function processExcelFile(){
+            const f=document.getElementById('excelInput').files[0]; if(!f)return;
+            const r=new FileReader();
+            r.onload=e=>{
+                const w=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+                XLSX.utils.sheet_to_json(w.Sheets[w.SheetNames[0]],{header:1}).forEach(r=>{
+                    const n=sanitizeText(r[0]),c=sanitizeText(r[1]);
+                    const rawStatus = r[2];
+                    let status = true; 
+                    if (rawStatus) {
+                        const s = String(rawStatus).toLowerCase().trim();
+                        if(['x', 'X', '×', 'absent', 'no'].includes(s)) status = false;
+                        else if(['o', 'O', '0', '○', 'present', 'yes'].includes(s)) status = true;
+                    }
+
+                    if(n&&c&&n!=='이름'&&n!=='Name'){
+                        if(!activeCountries.includes(c)) activeCountries.push(c);
+                        people.push({
+                            id: Date.now()+Math.random().toString(), 
+                            name:n, 
+                            country:c, 
+                            status: status, 
+                            checked: false
+                        });
+                    }
+                });
+                saveData(); renderTabs(); renderTable(); alert('Done');
+            };
+            r.readAsArrayBuffer(f);
+        }
+
+        function exportData() {
+            if(people.length === 0) return alert("No data to export.");
+            let csvContent = "\uFEFFName,Country,Status\n"; // BOM for Unicode support
+            people.forEach(p => {
+                // Save 'o' or 'x' based on status
+                const stChar = p.status ? 'o' : 'x';
+                csvContent += `${p.name},${p.country},${stChar}\n`;
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "random_matcher_export.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Log, Audio
+        function startComplexLogEffect(){const e=document.getElementById('calcDisplay'),s=document.getElementById('logStatus');s.innerText="CALCULATING...";s.className="text-[10px] text-yellow-400 font-bold animate-pulse";clearInterval(calcInterval);calcInterval=setInterval(()=>{let n="";for(let i=0;i<3;i++)n+=`> 0x${Math.floor(Math.random()*0xffffff).toString(16).toUpperCase()} [${Math.random().toFixed(8)}] OPTIMIZING SEGMENT ${Math.floor(Math.random()*99)}\n`;e.innerText=n+e.innerText.substring(0,500)},40);}
+        function appendLog(t,c=false){const d=document.getElementById('calcDisplay');if(c)d.innerHTML="";if(!c)clearInterval(calcInterval);d.innerHTML=t+"\n"+d.innerHTML;}
+        function stopCalcEffect(t,w,r){clearInterval(calcInterval);document.getElementById('logStatus').innerText="COMPLETE";document.getElementById('logStatus').className="text-[10px] text-green-500 font-bold";document.getElementById('calcDisplay').innerHTML=`<span class="text-slate-400">Target:</span> <span class="text-white font-bold">${t}</span>\n<span class="text-slate-400">Weights:</span> ${w}\n<span class="text-slate-400">Result:</span> <span class="text-yellow-400 font-bold">${r}</span>\n-----------------------------\n`+document.getElementById('calcDisplay').innerHTML;}
+        function playAlarmSound(r){if(r<=0)return;if(audioCtx.state==='suspended')audioCtx.resume();const v=document.getElementById('volumeControl').value/100;if(v<=0)return;const t=audioCtx.currentTime;[523.25,659.25,783.99].forEach((f,i)=>{const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.setValueAtTime(f,t+i*0.2);g.gain.setValueAtTime(0,t+i*0.2);g.gain.linearRampToValueAtTime(v,t+i*0.2+0.05);g.gain.exponentialRampToValueAtTime(0.001,t+i*0.2+0.5);o.connect(g);g.connect(audioCtx.destination);o.start(t+i*0.2);o.stop(t+i*0.2+0.6);});alarmTimeoutId=setTimeout(()=>{playAlarmSound(r-1)},1000);}
+        function stopAlarm(){clearTimeout(alarmTimeoutId);}
+        function testAudio(){stopAlarm();playAlarmSound(1);}
+
+        // Matching
+        function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a;}
+        
+        async function startMatchingProcess(){
+            // [Modified] Filter out absent people
+            const validPeople = people.filter(p => p.status === true);
+            
+            if(validPeople.length<2) return alert(i18n[currentLang].alert_min_user + ` (Active: ${validPeople.length})`);
+            if(isMatching)return;isMatching=true;
+            clearInterval(globalTimerInterval);clearTimeout(timerDelayTimeout);stopAlarm();
+            document.getElementById('matchingStage').innerHTML='';
+            
+            startComplexLogEffect();
+            let chaosPool=JSON.parse(JSON.stringify(validPeople)); shuffle(chaosPool);
+            let history=[], simulatedPool=JSON.parse(JSON.stringify(chaosPool));
+            for(let k=0;k<10;k++){let c=false;for(let i=0;i<Math.floor(simulatedPool.length/2)*2;i+=2){if(simulatedPool[i].country===simulatedPool[i+1].country){c=true;let cand=[];for(let j=0;j<simulatedPool.length;j++)if(j!==i&&j!==i+1)cand.push(j);if(cand.length>0){let sw=cand[Math.floor(Math.random()*cand.length)];history.push({indices:[i+1,sw]});[simulatedPool[i+1],simulatedPool[sw]]=[simulatedPool[sw],simulatedPool[i+1]];}}}if(!c)break;}
+            const cnt = validPeople.length; let reqSteps = cnt<=10?20:cnt<=20?25:cnt<=30?30:35;
+            if(history.length < reqSteps){let ex = reqSteps - history.length; let tP = JSON.parse(JSON.stringify(chaosPool)); let exH = []; for(let k=0;k<ex;k++){let a=Math.floor(Math.random()*tP.length), b=Math.floor(Math.random()*tP.length); if(a!==b){exH.push({indices:[a,b]}); [tP[a],tP[b]]=[tP[b],tP[a]];}} history = exH.concat(history);}
+            if(history.length>reqSteps) history=history.slice(history.length-reqSteps);
+            if(currentEffect==='visualizer') await runVisualizerEffect(chaosPool, history, simulatedPool, reqSteps);
+            else await runSimpleEffect(simulatedPool);
+        }
+
+        // --- Visualizer Mode [V34: Grid & Blue Leftover] ---
+        async function runVisualizerEffect(startPool, history, finalPool, stepCount) {
+            const ov=document.getElementById('visualizerLayer'), ct=document.getElementById('vizNodesContainer'), st=document.getElementById('vizStatusText'), svg=document.getElementById('vizLinesLayer');
+            ov.style.display='block'; ct.innerHTML=''; svg.innerHTML='';
+            const w=window.innerWidth, h=window.innerHeight;
+            
+            const padding = 80; // Safe zone
+            const availW = w - padding * 2;
+            const availH = h - padding * 2;
+            
+            // Best Grid Fit
+            const ratio = availW / availH;
+            const cols = Math.ceil(Math.sqrt(startPool.length * ratio));
+            const rows = Math.ceil(startPool.length / cols);
+            const cellW = availW / cols;
+            const cellH = availH / rows;
+            const nodeSize = Math.max(40, Math.min(130, Math.min(cellW, cellH) * 0.7)); // 70% of cell
+            const fontSize = Math.max(0.6, nodeSize/90)+'rem';
+
+            // Generate Grid Positions & Shuffle
+            let gridPositions = [];
+            for(let r=0; r<rows; r++){
+                for(let c=0; c<cols; c++){
+                    if(gridPositions.length < startPool.length) {
+                        gridPositions.push({r, c});
+                    }
+                }
+            }
+            shuffle(gridPositions); // Randomize slots
+
+            st.innerText = "Initializing Grid Chaos...";
+            let domNodes = startPool.map((d, i) => {
+                const el = document.createElement('div'); el.className = 'viz-node'; el.id = `vnode-${i}`;
+                el.style.width=`${nodeSize}px`; el.style.height=`${nodeSize}px`; el.style.fontSize=fontSize;
+                
+                // Assign to random grid slot
+                const slot = gridPositions[i];
+                const jitterX = (Math.random() - 0.5) * (cellW - nodeSize) * 0.6;
+                const jitterY = (Math.random() - 0.5) * (cellH - nodeSize) * 0.6;
+                
+                const tx = padding + slot.c * cellW + cellW/2 - nodeSize/2 + jitterX;
+                const ty = padding + slot.r * cellH + cellH/2 - nodeSize/2 + jitterY;
+
+                el.style.left=`${tx}px`; el.style.top=`${ty}px`;
+                el.innerHTML = `<div style="font-size:0.8em;color:#ccc">${d.country}</div><div>${d.name}</div><div class="absolute bottom-1 w-2 h-2 rounded-full" style="background:${getHexColor(d.country)}"></div>`;
+                ct.appendChild(el); return {el, data: d};
+            });
+            await new Promise(r => setTimeout(r, 1000));
+
+            let speed = 400; if(stepCount>=35) speed=150; else if(stepCount>=30) speed=250; else if(stepCount>=25) speed=300;
+            st.innerText = `Resolving Conflicts...`;
+
+            for (let step of history) {
+                const nA = domNodes[step.indices[0]], nB = domNodes[step.indices[1]];
+                nA.el.classList.add('conflict', 'flying'); nB.el.classList.add('conflict', 'flying');
+                nA.el.style.transition = `all ${speed/1000}s ease-in-out`; nB.el.style.transition = `all ${speed/1000}s ease-in-out`;
+                const tL = nA.el.style.left, tT = nA.el.style.top;
+                nA.el.style.left = nB.el.style.left; nA.el.style.top = nB.el.style.top;
+                nB.el.style.left = tL; nB.el.style.top = tT;
+                [domNodes[step.indices[0]], domNodes[step.indices[1]]] = [domNodes[step.indices[1]], domNodes[step.indices[0]]];
+                await new Promise(r => setTimeout(r, speed));
+                nA.el.classList.remove('conflict', 'flying'); nB.el.classList.remove('conflict', 'flying');
+            }
+
+            st.innerText = "Securing Matched Pairs...";
+            
+            // Final Alignment in Centered Grid
+            const gap = nodeSize * 0.2;
+            const pairWidth = nodeSize * 2 + gap * 3;
+            const gridCols = Math.floor(availW / pairWidth);
+            const pairCount = Math.floor(domNodes.length/2);
+            
+            // Calculate grid dimensions
+            const totalRows = Math.ceil(pairCount / gridCols);
+            const gridH = totalRows * (nodeSize + gap + 30);
+            const gridW = Math.min(pairCount, gridCols) * pairWidth;
+            
+            // Center in screen
+            const startX = (w - gridW) / 2 + gap;
+            const startY = (h - gridH) / 2;
+
+            for(let i=0; i<pairCount; i++) {
+                const n1 = domNodes[i*2], n2 = domNodes[i*2+1];
+                const col = i % gridCols;
+                const row = Math.floor(i / gridCols);
+                const tx = startX + col * pairWidth;
+                const ty = startY + row * (nodeSize + gap + 30);
+
+                n1.el.style.transition = 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
+                n1.el.style.left = `${tx}px`; n1.el.style.top = `${ty}px`;
+                n1.el.classList.add('matched');
+
+                n2.el.style.transition = 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
+                n2.el.style.left = `${tx + nodeSize + gap}px`; n2.el.style.top = `${ty}px`;
+                n2.el.classList.add('matched');
+
+                await new Promise(r => setTimeout(r, 100)); 
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", tx + nodeSize); line.setAttribute("y1", ty + nodeSize/2);
+                line.setAttribute("x2", tx + nodeSize + gap); line.setAttribute("y2", ty + nodeSize/2);
+                line.setAttribute("class", "connection-line");
+                svg.appendChild(line);
+                setTimeout(()=>line.classList.add('visible'), 50);
+            }
+
+            // Leftover (Blue)
+            if(domNodes.length % 2 !== 0) {
+                const l = domNodes[domNodes.length-1];
+                const lTop = startY + Math.ceil(pairCount/gridCols)*(nodeSize+gap+30);
+                l.el.style.top = `${lTop}px`;
+                l.el.style.left = `${w/2 - nodeSize/2}px`;
+                l.el.classList.add('leftover'); // Blue Style
+            }
+
+            await new Promise(r => setTimeout(r, 2000));
+            ov.style.display = 'none';
+            renderFinalListImmediately(finalPool);
+            history = [];
+        }
+
+        async function runSimpleEffect(pool){
+            const pc=Math.floor(pool.length/2), stage=document.getElementById('matchingStage');
+            for(let i=0;i<pc;i++){
+                const d=document.createElement('div'); d.id=`pair-${i}`; d.className='bg-white rounded-xl border-4 border-indigo-500 p-2 flex justify-between items-center shadow-lg mb-2 relative opacity-0 scale-90 transition-all duration-300 min-h-[80px]';
+                d.innerHTML=`<div class="flash-overlay"></div><div class="flex-1 text-center"><div class="text-xl font-bold text-slate-400 slot-text">?</div></div><div class="text-xl mx-2 animate-bounce">⚡</div><div class="flex-1 text-center"><div class="text-xl font-bold text-slate-400 slot-text">?</div></div>`;
+                stage.appendChild(d); setTimeout(()=>d.classList.remove('opacity-0','scale-90'),100);
+                await new Promise(r=>{let t=0;const l=setInterval(()=>{const s=d.querySelectorAll('.slot-text');s[0].innerText=people[Math.floor(Math.random()*people.length)].name;s[1].innerText=people[Math.floor(Math.random()*people.length)].name;if(++t>20){clearInterval(l);d.innerHTML=`<div class="flash-overlay trigger-flash"></div><div class="flex-1 text-center"><span class="${getCountryColorClass(pool[i*2].country)} px-2 py-0.5 rounded text-[10px]">${pool[i*2].country}</span><div class="font-bold text-xl text-slate-800">${pool[i*2].name}</div></div><div class="text-xl mx-2">⚡</div><div class="flex-1 text-center"><span class="${getCountryColorClass(pool[i*2+1].country)} px-2 py-0.5 rounded text-[10px]">${pool[i*2+1].country}</span><div class="font-bold text-xl text-slate-800">${pool[i*2+1].name}</div></div>`;d.classList.add('match-pop');confetti({particleCount:40,spread:60,origin:{x:(d.getBoundingClientRect().left+d.offsetWidth/2)/window.innerWidth,y:(d.getBoundingClientRect().top+d.offsetHeight/2)/window.innerHeight},startVelocity:25,zIndex:50});r()}},40)})}
+            finalizeMatching(pool,pc,pool.length%2!==0?pool[pool.length-1]:null);
+        }
+
+        function renderFinalListImmediately(pool) {
+            const stage = document.getElementById('matchingStage');
+            stage.className = "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 overflow-y-auto z-10 flex-1 content-start pb-24 px-2 custom-scroll relative";
+            const pairCount = Math.floor(pool.length/2);
+            for(let i=0; i<pairCount; i++) {
+                const p1=pool[i*2], p2=pool[i*2+1];
+                const div = document.createElement('div'); div.id = `pair-${i}`;
+                div.className = 'bg-white rounded-xl border-4 border-indigo-500 p-2 flex justify-between items-center shadow-lg relative match-pop min-h-[80px]';
+                div.innerHTML = `<div class="flash-overlay"></div><div class="flex-1 text-center truncate"><span class="${getCountryColorClass(p1.country)} px-2 py-0.5 rounded text-[10px]">${p1.country}</span><div class="font-bold text-lg text-slate-800 truncate">${p1.name}</div></div><div class="text-sm mx-1">⚡</div><div class="flex-1 text-center truncate"><span class="${getCountryColorClass(p2.country)} px-2 py-0.5 rounded text-[10px]">${p2.country}</span><div class="font-bold text-lg text-slate-800 truncate">${p2.name}</div></div>`;
+                stage.appendChild(div);
+            }
+            finalizeMatching(pool, pairCount, pool.length%2!==0 ? pool[pool.length-1] : null);
+        }
+
+        function finalizeMatching(pool, pc, l){
+            if(l){
+                const d=document.createElement('div'); d.id='leftoverCard'; d.className='bg-slate-700 p-4 rounded-xl text-center text-white match-pop border border-slate-600 relative z-30 min-h-[80px] flex flex-col justify-center items-center';
+                d.innerHTML=`<div class="text-xs text-slate-400 mb-1">${i18n[currentLang].leftover}</div><div><span class="${getCountryColorClass(l.country)} px-2 py-0.5 rounded text-[10px] text-slate-800 bg-opacity-90">${l.country}</span> <span class="font-bold text-lg ml-1">${l.name}</span></div>`;
+                document.getElementById('matchingStage').appendChild(d);
+                clearInterval(calcInterval); appendLog(`> LADDER GAME INITIATED...`);
+                setTimeout(()=>runLadderGame(pool,pc,l),1000);
+            } else {
+                clearInterval(calcInterval); document.getElementById('logStatus').innerText="DONE"; appendLog("> SUCCESS."); isMatching=false;
+                confetti({particleCount:200,spread:100,origin:{y:0.6}});
+                prepareTimer();
+            }
+        }
+
+        function runLadderGame(pool, pairCount, leftover){
+            startComplexLogEffect();
+            let c=[], w=[]; for(let i=0;i<pairCount;i++){ let weight=10; if(pool[i*2].country===leftover.country || pool[i*2+1].country===leftover.country) weight=1; for(let k=0;k<weight;k++)c.push(i); w.push(`G${i+1}(${weight})`); }
+            const winner=c[Math.floor(Math.random()*c.length)];
+            const overlay=document.getElementById('ladderOverlay'); overlay.classList.remove('hidden');
+            const cvs=document.getElementById('ladderCanvas'); cvs.width=Math.min(window.innerWidth*0.9,800); cvs.height=500; const ctx=cvs.getContext('2d');
+            let dis=[winner]; while(dis.length<Math.min(6,pairCount)){let r=Math.floor(Math.random()*pairCount); if(!dis.includes(r))dis.push(r);} dis.sort((a,b)=>a-b);
+            const lc=dis.length, cw=cvs.width/lc, stI=0, edI=dis.indexOf(winner);
+            let winTextScale=1; let morphing=false;
+            const sidePad=50, drawW=cvs.width-(sidePad*2), colW=drawW/(lc>1?lc-1:1);
+
+            function drawStaticLadder() {
+                ctx.fillStyle = '#fff'; ctx.fillRect(0,0,cvs.width,cvs.height); ctx.lineWidth=1;
+                for(let i=0;i<lc;i++){ 
+                    const x=sidePad+i*colW; ctx.strokeStyle='#ddd'; ctx.beginPath(); ctx.moveTo(x,40); ctx.lineTo(x,460); ctx.stroke(); ctx.fillStyle=i===stI?'#F59E0B':'#999'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center'; ctx.fillText(i===stI?"Start":"",x,30);
+                    if(i===edI && morphing) { ctx.fillStyle = '#EF4444'; ctx.font = `bold ${14 * winTextScale}px sans-serif`; } else { ctx.fillStyle = '#333'; ctx.font = 'bold 14px sans-serif'; }
+                    ctx.fillText(`Group ${dis[i]+1}`,x,485);
+                }
+                ctx.strokeStyle='#eee'; for(let i=0;i<60;i++){const y=50+Math.random()*400, c=Math.floor(Math.random()*(lc-1)), x=sidePad+c*colW; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+colW,y); ctx.stroke();}
+            }
+            
+            let scanX=0; let scanDir=50;
+            const scanInterval = setInterval(() => {
+                drawStaticLadder();
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.3)'; ctx.fillRect(scanX, 465, 100, 30);
+                ctx.strokeStyle = '#00FF00'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(scanX, 465); ctx.lineTo(scanX, 495); ctx.stroke();
+                scanX += scanDir; if(scanX > cvs.width || scanX < 0) scanDir *= -1;
+                if(Math.random() < 0.02 && scanX > 0 && scanX < cvs.width) { clearInterval(scanInterval); drawStaticLadder(); startPath(); }
+            }, 20);
+
+            function startPath(){
+                let pp=[], cx=sidePad+stI*colW, cy=40, tx=sidePad+edI*colW, stp=30, ys=(420)/stp; pp.push({x:cx,y:cy});
+                for(let i=1;i<stp;i++){ cy+=ys; const dir=tx>cx?1:-1; if(cx!==tx){if(Math.random()>0.3)cx+=dir*colW; else if(Math.random()<0.1 && lc>2){const nx=cx-dir*colW; if(nx>=sidePad && nx<=cvs.width-sidePad)cx=nx;}} else if(Math.random()<0.2 && lc>2){const d=Math.random()>0.5?1:-1; const nx=cx+d*colW; if(nx>=sidePad && nx<=cvs.width-sidePad)cx=nx;} pp.push({x:cx,y:cy}); } pp.push({x:tx,y:460});
+                let pi=0; ctx.lineWidth=4; ctx.lineCap='round'; ctx.strokeStyle='#EF4444';
+                function dr(){ 
+                    if(pi>=pp.length-1){
+                        morphing = true; let morphFrame = 0;
+                        const morphInt = setInterval(() => {
+                            winTextScale = 1 + (morphFrame * 0.1); drawStaticLadder();
+                            ctx.beginPath(); ctx.moveTo(pp[0].x, pp[0].y); for(let p of pp) ctx.lineTo(p.x, p.y); ctx.stroke();
+                            morphFrame++; if(morphFrame > 5) { clearInterval(morphInt); stopCalcEffect(leftover.name,w.join(','),`Group ${winner+1}`); setTimeout(()=>{overlay.classList.add('hidden');flyPlane(winner,leftover)},1000); }
+                        }, 50); return; 
+                    } 
+                    const p1=pp[pi], p2=pp[pi+1]; ctx.beginPath(); ctx.moveTo(p1.x,p1.y); if(p1.x!==p2.x){ctx.lineTo(p1.x,p2.y);ctx.lineTo(p2.x,p2.y);}else{ctx.lineTo(p2.x,p2.y);} ctx.stroke(); pi++; setTimeout(dr,75); 
+                } dr();
+            }
+        }
+        function flyPlane(tIdx, l){
+            const s=document.getElementById('leftoverCard'), t=document.getElementById(`pair-${tIdx}`); if(!s||!t)return;
+            const sr=s.getBoundingClientRect(), tr=t.getBoundingClientRect();
+            const p=document.createElement('div'); p.className='paper-plane'; p.innerText="✈️";
+            p.style.left=sr.left+sr.width/2-20+'px'; p.style.top=sr.top+sr.height/2-20+'px';
+            document.body.appendChild(p); s.style.opacity='0';
+            setTimeout(()=>{ const dx=tr.left+tr.width/2-20-parseFloat(p.style.left), dy=tr.top+tr.height/2-20-parseFloat(p.style.top), ang=Math.atan2(dy,dx)*180/Math.PI; p.style.transform=`translate(${dx}px,${dy}px) rotate(${ang}deg) scale(1.5)`; p.style.opacity='0'; },50);
+            setTimeout(()=>{p.remove();s.remove();makeTriple(t,l)},1200);
+        }
+        function makeTriple(c,l){
+            c.classList.add('gold-group');
+            const n1=c.querySelectorAll('.font-bold')[0].innerText, c1=c.querySelectorAll('span')[0].innerText, n2=c.querySelectorAll('.font-bold')[1].innerText, c2=c.querySelectorAll('span')[1].innerText;
+            c.innerHTML=`<div class="gold-shine"></div><div class="flash-overlay trigger-flash"></div><div class="flex flex-col w-full items-center z-10"><div class="flex justify-around w-full mb-2"><div class="text-center"><span class="${getCountryColorClass(c1)} px-1 rounded text-[10px]">${c1}</span><div class="font-bold text-sm text-slate-700 truncate max-w-[60px]">${n1}</div></div><div class="text-center"><span class="${getCountryColorClass(c2)} px-1 rounded text-[10px]">${c2}</span><div class="font-bold text-sm text-slate-700 truncate max-w-[60px]">${n2}</div></div></div><div class="w-full border-t border-amber-300 my-1"></div><div class="text-center animate-bounce mt-1"><div class="text-[9px] font-bold text-amber-600">NEW</div><span class="${getCountryColorClass(l.country)} px-1 py-0.5 rounded text-[10px]">${l.country}</span><div class="font-black text-lg text-slate-800 truncate max-w-[80px]">${l.name}</div></div></div>`;
+            confetti({particleCount:150,spread:100,origin:{y:0.6},colors:['#F59E0B','#FFD700']}); isMatching=false; prepareTimer();
+        }
+        function prepareTimer(){
+            const m=parseInt(document.getElementById('timerMin').value)||0, s=parseInt(document.getElementById('timerSec').value)||0; if((m*60+s)<=0)return;
+            const d=parseInt(document.getElementById('delayControl').value)*1000; appendLog(`> STANDBY FOR TIMER (${d/1000}s)...`);
+            timerDelayTimeout=setTimeout(()=>{runPostMatchTimer(m,s)},d);
+        }
+        function runPostMatchTimer(m,s){
+            const ts=m*60+s, st=document.getElementById('matchingStage'); const c=document.createElement('div'); c.className='col-span-full timer-container match-pop group';
+            c.innerHTML=`<div class="timer-bar" style="width:0%;transition-duration:${ts}s"></div><div class="timer-text-overlay"><div class="timer-digits" id="tD">00:00</div><div class="timer-label" id="tL">${i18n[currentLang].label_rem}</div></div><div class="timer-controls"><div id="playPauseBtn" class="control-btn" onclick="toggleTimer()">⏸️</div></div>`;
+            st.prepend(c); st.scrollTop=0;
+            let l=ts; isTimerPaused=false; isTimeUpState=false; setTimeout(()=>{c.querySelector('.timer-bar').style.width='100%'},100); clearInterval(globalTimerInterval);
+            globalTimerInterval=setInterval(()=>{
+                if(!isTimerPaused && !isTimeUpState){
+                    const mm=Math.floor(l/60).toString().padStart(2,'0'), ss=(l%60).toString().padStart(2,'0');
+                    const d=document.getElementById('tD'); if(d)d.innerText=`${mm}:${ss}`;
+                    if(l<=0){
+                        isTimeUpState=true; if(d){d.innerText=i18n[currentLang].timer_done; d.classList.add('text-red-500','animate-bounce');}
+                        const lb=document.getElementById('tL'); if(lb)lb.innerText=""; playAlarmSound(5);
+                    } l--;
+                }
+            },1000);
+        }
+        window.toggleTimer = function(){
+            const btn=document.getElementById('playPauseBtn'), d=document.getElementById('tD');
+            if(isTimeUpState){ stopAlarm(); if(d)d.classList.remove('animate-bounce'); return; }
+            isTimerPaused=!isTimerPaused; if(isTimerPaused){ btn.innerText="▶️"; const b=document.querySelector('.timer-bar'); if(b)b.style.transition='none'; } else{ btn.innerText="⏸️"; const b=document.querySelector('.timer-bar'); if(b)b.style.transition='width 1s linear'; }
+        }
+
+        loadData(); // Load data on startup
+        setLanguage(currentLang); 
+        renderTabs(); 
+        renderTable();
+    </script>
+</body>
+</html>

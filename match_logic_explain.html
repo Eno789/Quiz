@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Algorithm Storyteller V41 (Grid Fix)</title>
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/3557/3557582.png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700;900&display=swap');
+        
+        body { font-family: 'Noto Sans JP', sans-serif; background-color: #0f172a; color: white; overflow: hidden; }
+        .mono-font { font-family: 'JetBrains Mono', monospace; }
+
+        /* 노드 스타일 */
+        .node {
+            position: absolute; width: 60px; height: 60px;
+            border-radius: 50%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+            z-index: 10; 
+            border: 2px solid rgba(255,255,255,0.7); 
+            background: radial-gradient(circle at 30% 30%, #475569, #1e293b);
+            color: white; will-change: top, left, transform;
+            font-size: 0.7rem;
+        }
+        .node .flag { font-size: 0.7rem; font-weight: bold; color: #cbd5e1; }
+        .node .name { font-weight: 900; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 90%; }
+
+        /* 상태별 효과 */
+        .node.seeking { border-color: #fbbf24; box-shadow: 0 0 20px rgba(251, 191, 36, 0.5); transform: scale(1.1); }
+        .node.conflict-country { border-color: #ef4444; background: radial-gradient(circle at 30% 30%, #ef4444, #7f1d1d); box-shadow: 0 0 30px #ef4444; animation: shake 0.4s infinite; }
+        .node.conflict-repeat { border-color: #f97316; background: radial-gradient(circle at 30% 30%, #f97316, #7c2d12); box-shadow: 0 0 30px #f97316; animation: pulse-border 1s infinite; }
+        .node.matched { border-color: #10b981; background: radial-gradient(circle at 30% 30%, #10b981, #064e3b); box-shadow: 0 0 20px #10b981; z-index: 20; }
+
+        /* 연결선 */
+        svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+        .link-line { fill: none; stroke: #475569; stroke-width: 3; stroke-linecap: round; transition: all 0.5s; opacity: 0; }
+        .link-line.active { opacity: 0.6; }
+        .link-line.matched { stroke: #10b981; opacity: 0.8; stroke-width: 4; }
+        .link-line.conflict-country { stroke: #ef4444; stroke-dasharray: 5, 5; opacity: 1; }
+        .link-line.conflict-repeat { stroke: #f97316; stroke-dasharray: 2, 2; opacity: 1; }
+
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+        @keyframes pulse-border { 0% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(249, 115, 22, 0); } 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); } }
+
+        /* 사이드바 */
+        .step-item { padding: 14px; border-left: 4px solid #334155; transition: all 0.3s; opacity: 0.3; margin-bottom: 8px; }
+        .step-item.active { border-left-color: #6366f1; background: rgba(99, 102, 241, 0.1); opacity: 1; transform: translateX(10px); }
+        .step-title { font-weight: 900; font-size: 1rem; margin-bottom: 2px; color: #e2e8f0; }
+        .step-desc { font-size: 0.8rem; color: #94a3b8; line-height: 1.4; }
+    </style>
+</head>
+<body class="flex h-screen w-screen">
+
+    <div class="flex-1 relative bg-slate-900 border-r border-slate-700 overflow-hidden" id="stage">
+        <div class="absolute inset-0 opacity-20 pointer-events-none" style="background-image: radial-gradient(#6366f1 1px, transparent 1px); background-size: 40px 40px;"></div>
+        
+        <div class="absolute top-10 left-0 w-full text-center z-20 pointer-events-none">
+            <h1 class="text-3xl font-black text-white mb-2 tracking-tight drop-shadow-lg">ALGORITHM LOGIC FLOW</h1>
+            <div id="statusText" class="inline-block px-6 py-2 rounded-full bg-slate-800 border border-indigo-500/50 text-indigo-300 font-bold mono-font text-sm">
+                Ready to Start
+            </div>
+        </div>
+
+        <svg id="linesLayer"></svg>
+        <div id="nodesContainer"></div>
+    </div>
+
+    <div class="w-[420px] bg-slate-950 flex flex-col shadow-2xl z-30">
+        <div class="p-5 border-b border-slate-800 bg-slate-900">
+            <div class="flex justify-between items-center mb-3">
+                <span class="text-xs font-bold text-slate-500 tracking-widest">CONTROL PANEL</span>
+                <span class="text-xs font-bold text-green-500 animate-pulse">● INTERACTIVE</span>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="prevStep()" id="btnPrev" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg font-bold transition text-sm disabled:opacity-50">◀ 前へ (Prev)</button>
+                <button onclick="nextStep()" id="btnNext" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-lg font-bold transition shadow-lg shadow-indigo-500/30 text-sm">次へ (Next) ▶</button>
+            </div>
+        </div>
+
+        <div class="flex-1 p-5 overflow-y-auto" id="stepList">
+            <div id="step-0" class="step-item">
+                <div class="step-title">1. カオス生成 (Chaos Spawn)</div>
+                <div class="step-desc">画面中央を基準にノードを<strong>ランダム生成</strong>します。<br>(グリッド配置で重なり防止)</div>
+            </div>
+            <div id="step-1" class="step-item">
+                <div class="step-title">2. ペア探索 (Seeking)</div>
+                <div class="step-desc">アルゴリズムが実行され、近くの相手と<strong>ペア候補</strong>を作ります。</div>
+            </div>
+            <div id="step-2" class="step-item">
+                <div class="step-title">3. 衝突: 国籍 (Conflict: Country) <span class="text-red-400">●</span></div>
+                <div class="step-desc"><strong>国籍が同じ</strong>ペアは衝突とみなされ、<span class="text-red-400 font-bold">赤色</span>で警告されます。(3組以上)</div>
+            </div>
+            <div id="step-3" class="step-item">
+                <div class="step-title">4. 衝突: 重複 (Conflict: Repeat) <span class="text-orange-400">●</span></div>
+                <div class="step-desc">国籍が違っても、<strong>直前のパートナー</strong>と同じなら<span class="text-orange-400 font-bold">オレンジ色</span>で警告され、再マッチング対象になります。(3組以上)</div>
+            </div>
+            <div id="step-4" class="step-item">
+                <div class="step-title">5. 最終整列 (Final Grid)</div>
+                <div class="step-desc">全ての衝突が解決されたペアが、画面下部の<strong>完了エリア</strong>に整列します。<br><span class="text-green-400 font-bold">緑色の線</span>が確定の証です。</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const demoData = [
+            { id: 0, name: 'Daseul', country: 'KR', color: 'bg-rose-500' },
+            { id: 1, name: 'Juhong', country: 'KR', color: 'bg-rose-500' },
+            { id: 2, name: 'Cho', country: 'CN', color: 'bg-red-500' },
+            { id: 3, name: 'Li', country: 'CN', color: 'bg-red-500' },
+            { id: 4, name: 'Tanaka', country: 'JP', color: 'bg-emerald-500' },
+            { id: 5, name: 'Suzuki', country: 'JP', color: 'bg-emerald-500' },
+            
+            { id: 6, name: 'Smith', country: 'US', color: 'bg-blue-500' },
+            { id: 7, name: 'Jeremy', country: 'FR', color: 'bg-indigo-500' },
+            { id: 8, name: 'Garcia', country: 'ES', color: 'bg-yellow-500' },
+            { id: 9, name: 'Silva', country: 'PE', color: 'bg-red-600' },
+            { id: 10, name: 'Wilson', country: 'GB', color: 'bg-blue-700' },
+            { id: 11, name: 'Weber', country: 'CH', color: 'bg-red-600' },
+            
+            { id: 12, name: 'Lopez', country: 'CO', color: 'bg-yellow-400' },
+            { id: 13, name: 'Somchai', country: 'TH', color: 'bg-purple-500' },
+            { id: 14, name: 'Nguyen', country: 'VN', color: 'bg-red-500' },
+            { id: 15, name: 'Dubois', country: 'FR', color: 'bg-indigo-500' },
+            { id: 16, name: 'Lin', country: 'TW', color: 'bg-cyan-500' },
+            { id: 17, name: 'Kim', country: 'KR', color: 'bg-rose-500' },
+            { id: 18, name: 'IHARA', country: 'JP', color: 'bg-emerald-500' },
+            { id: 19, name: 'Jones', country: 'US', color: 'bg-blue-500' }
+        ];
+
+        let currentStep = -1;
+        const totalSteps = 5;
+        let animationTimers = []; 
+
+        const stage = document.getElementById('stage');
+        const container = document.getElementById('nodesContainer');
+        const svg = document.getElementById('linesLayer');
+        const statusText = document.getElementById('statusText');
+
+        function clearAllTimers() {
+            animationTimers.forEach(t => clearTimeout(t));
+            animationTimers = [];
+        }
+        function setSafeTimeout(callback, delay) {
+            const timer = setTimeout(callback, delay);
+            animationTimers.push(timer);
+        }
+
+        function updateUI(stepIndex) {
+            document.querySelectorAll('.step-item').forEach((el, i) => {
+                if(i === stepIndex) {
+                    el.classList.add('active');
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    el.classList.remove('active');
+                }
+            });
+            document.getElementById('btnPrev').disabled = (stepIndex <= 0);
+            document.getElementById('btnNext').innerText = (stepIndex >= totalSteps - 1) ? "再開 (Restart) ↻" : "次へ (Next) ▶";
+        }
+
+        function drawLine(id1, id2, type = 'active') {
+            const n1 = document.getElementById(`node-${id1}`);
+            const n2 = document.getElementById(`node-${id2}`);
+            if(!n1 || !n2) return;
+
+            const r1 = n1.getBoundingClientRect();
+            const r2 = n2.getBoundingClientRect();
+            const stageRect = stage.getBoundingClientRect();
+
+            const x1 = r1.left + r1.width/2 - stageRect.left;
+            const y1 = r1.top + r1.height/2 - stageRect.top;
+            const x2 = r2.left + r2.width/2 - stageRect.left;
+            const y2 = r2.top + r2.height/2 - stageRect.top;
+
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line.setAttribute("x1", x1); line.setAttribute("y1", y1);
+            line.setAttribute("x2", x2); line.setAttribute("y2", y2);
+            line.setAttribute("class", `link-line ${type}`);
+            svg.appendChild(line);
+        }
+
+        function clearLines() { svg.innerHTML = ''; }
+
+        function renderScene(step) {
+            clearAllTimers();
+            clearLines();
+
+            const w = stage.clientWidth;
+            const h = stage.clientHeight;
+
+            document.querySelectorAll('.node').forEach(n => {
+                n.className = 'node'; 
+            });
+
+            switch(step) {
+                case 0: // 1. Chaos Spawn
+                    statusText.innerText = "1. カオス生成 (Generating Chaos)";
+                    container.innerHTML = '';
+                    
+                    const cols = 5;
+                    const rows = 4;
+                    const cellW = w / cols;
+                    const cellH = h / rows;
+                    
+                    demoData.forEach((d, i) => {
+                        const el = document.createElement('div');
+                        el.className = 'node'; el.id = `node-${i}`;
+                        el.style.left = `${w/2 - 30}px`; el.style.top = `${h/2 - 30}px`;
+                        el.innerHTML = `<div class="flag">${d.country}</div><div class="name">${d.name}</div><div class="absolute bottom-1 w-2 h-2 rounded-full ${d.color}"></div>`;
+                        container.appendChild(el);
+
+                        setSafeTimeout(() => {
+                            const c = i % cols; 
+                            const r = Math.floor(i / cols);
+                            const jX = (Math.random()-0.5) * 60;
+                            const jY = (Math.random()-0.5) * 60;
+                            const tx = (c * cellW) + (cellW/2) - 30 + jX;
+                            const ty = (r * cellH) + (cellH/2) - 30 + jY;
+                            el.style.left = `${tx}px`;
+                            el.style.top = `${ty}px`;
+                        }, 50);
+                    });
+                    break;
+
+                case 1: // 2. Seeking
+                    statusText.innerText = "2. ペア探索 (Seeking Pairs)";
+                    const pairCols = 4;
+                    const startY = 120;
+                    
+                    demoData.forEach((d, i) => {
+                        const el = document.getElementById(`node-${i}`);
+                        if(!el) return;
+                        const pairIdx = Math.floor(i/2); 
+                        const isLeft = i%2 === 0;
+                        const col = pairIdx % pairCols;
+                        const row = Math.floor(pairIdx / pairCols);
+                        const totalW = pairCols * 200; 
+                        const startX = (w - totalW) / 2 + 50;
+                        const tx = startX + col * 200 + (isLeft ? 0 : 80);
+                        const ty = startY + row * 100;
+                        el.style.left = `${tx}px`;
+                        el.style.top = `${ty}px`;
+                        el.classList.add('seeking');
+                    });
+                    break;
+
+                case 2: // 3. Country Conflict
+                    statusText.innerText = "3. 衝突: 国籍 (Country Conflict)";
+                    
+                    demoData.forEach((d, i) => {
+                        const el = document.getElementById(`node-${i}`);
+                        if(!el) return;
+                        // 2단계 위치
+                        const pairIdx = Math.floor(i/2); 
+                        const isLeft = i%2 === 0;
+                        const col = pairIdx % 4;
+                        const row = Math.floor(pairIdx / 4);
+                        const totalW = 4 * 200; const startX = (w - totalW) / 2 + 50;
+                        const tx = startX + col * 200 + (isLeft ? 0 : 80);
+                        const ty = 120 + row * 100;
+                        el.style.left = `${tx}px`; el.style.top = `${ty}px`;
+
+                        if(i <= 5) el.classList.add('conflict-country');
+                    });
+
+                    setSafeTimeout(() => {
+                        drawLine(0, 1, 'conflict-country');
+                        drawLine(2, 3, 'conflict-country');
+                        drawLine(4, 5, 'conflict-country');
+                    }, 500);
+                    break;
+
+                case 3: // 4. Repeat Conflict
+                    statusText.innerText = "4. 衝突: 重複 (Repeat Conflict)";
+                    
+                    demoData.forEach((d, i) => {
+                        const el = document.getElementById(`node-${i}`);
+                        if(!el) return;
+                        
+                        // 2단계 위치 유지
+                        const pairIdx = Math.floor(i/2); 
+                        const isLeft = i%2 === 0;
+                        const col = pairIdx % 4; const row = Math.floor(pairIdx / 4);
+                        const totalW = 4 * 200; const startX = (w - totalW) / 2 + 50;
+                        const tx = startX + col * 200 + (isLeft ? 0 : 80);
+                        const ty = 120 + row * 100;
+                        el.style.left = `${tx}px`; el.style.top = `${ty}px`;
+
+                        if(i >= 6 && i <= 11) el.classList.add('conflict-repeat');
+                    });
+
+                    setSafeTimeout(() => {
+                        drawLine(6, 7, 'conflict-repeat');
+                        drawLine(8, 9, 'conflict-repeat');
+                        drawLine(10, 11, 'conflict-repeat');
+                    }, 500);
+                    break;
+
+                case 4: // 5. Final Grid (Horizontal Fix)
+                    statusText.innerText = "5. 最終整列 (Final Matched Grid)";
+                    
+                    // [V41 FIX] Use 4 Columns (Even) -> No diagonal lines
+                    const fCols = 4;
+                    const fCellW = 180;
+                    const fCellH = 90;
+                    // Center the 4-column grid
+                    const fStartX = (w - (fCols * fCellW)) / 2 + fCellW/2 - 40;
+                    const fStartY = h * 0.25;
+
+                    const finalOrder = [
+                        0, 4,  2, 7,  1, 6,  3, 8,
+                        5, 9, 10, 15, 11, 12, 13, 16,
+                        14, 17, 18, 19
+                    ];
+
+                    finalOrder.forEach((nodeId, i) => {
+                        const el = document.getElementById(`node-${nodeId}`);
+                        if(!el) return;
+                        
+                        const c = i % fCols;
+                        const r = Math.floor(i / fCols);
+                        
+                        // Pair Logic: 0-1, 2-3 are pairs.
+                        // Col 0 & 1 is a pair. Col 2 & 3 is a pair.
+                        const pairGap = (c % 2 === 1) ? 20 : 0; // Add gap between different pairs? No, keep uniform for now.
+                        
+                        const tx = fStartX + c * fCellW;
+                        const ty = fStartY + r * fCellH + 50;
+
+                        el.style.left = `${tx}px`;
+                        el.style.top = `${ty}px`;
+                        el.classList.add('matched');
+                    });
+
+                    setSafeTimeout(() => {
+                        // Draw horizontal lines only
+                        for(let k=0; k<finalOrder.length; k+=2) {
+                            drawLine(finalOrder[k], finalOrder[k+1], 'matched');
+                        }
+                    }, 800);
+                    break;
+            }
+        }
+
+        function nextStep() {
+            if(currentStep < totalSteps - 1) {
+                currentStep++;
+                updateUI(currentStep);
+                renderScene(currentStep);
+            } else {
+                currentStep = 0;
+                updateUI(currentStep);
+                renderScene(currentStep);
+            }
+        }
+
+        function prevStep() {
+            if(currentStep > 0) {
+                currentStep--;
+                updateUI(currentStep);
+                renderScene(currentStep);
+            }
+        }
+    </script>
+</body>
+</html>
