@@ -1,0 +1,39 @@
+# ==========================
+# sample & versioned csv files
+# ==========================
+!match_sample_data.csv
+!verb_data_v6.4.csv
+
+# ==========================
+# csv, excel files
+# ==========================
+*.csv
+*.xls
+*.xlsx
+
+# ==========================
+# Vscode cashe & workspace settings
+# ==========================
+.vscode/*
+*.code-workspace
+.history/
+
+# ==========================
+# webstorm cashe & workspace settings
+# ==========================
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+build/
+cmake-build-*/
+
+# ==========================
+# temp files
+# ==========================
+.DS_Store
+Thumbs.db
+node_modules/
+dist/
+*.log
