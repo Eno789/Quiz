@@ -1,7 +1,7 @@
 # 🇯🇵 Japanese Verb Quiz (日本語動詞クイズ)
 
 <div align="center">
-  <img src="lgo.webp" alt="Project Logo" width="300px">
+  <img src="static/lgo.webp" alt="Project Logo" width="300px">
   <br/><br/>
 
   ![HTML5](https://img.shields.io/badge/html5-%23E34F26.svg?style=for-the-badge&logo=html5&logoColor=white)
